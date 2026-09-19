@@ -1,0 +1,11 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended', ':dependencyDashboard'],
+  // The image tracks a rolling akmods tag so there is nothing to pin here.
+  // Keep GitHub Actions up to date.
+  'github-actions': { enabled: true },
+  timezone: 'UTC',
+  schedule: ['before 6am'],
+  prHourlyLimit: 2,
+  labels: ['renovate'],
+}

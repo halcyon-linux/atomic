@@ -1,0 +1,123 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://raw.githubusercontent.com/terrapkg/subatomic-repos/main/terra.repo
+        - https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+        - vscode.repo # files/dnf/vscode.repo
+      keys:
+        - https://packages.microsoft.com/keys/microsoft.asc
+        - https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+    install:
+      install-weak-deps: false
+      packages:
+        - accountsservice
+        - bleachbit
+        - bluez-tools
+        - brightnessctl
+        - cargo
+        - cmake
+        - cronie
+        - curl
+        - ddcutil
+        - direnv
+        - distrobox
+        - emacs-pgtk
+        - fail2ban
+        - fastfetch
+        - file-roller
+        - fontconfig
+        - fonts-filesystem
+        - gcc-c++
+        - git
+        - gnome-keyring
+        - gnome-tweaks
+        - go
+        - grim
+        - gsettings-desktop-schemas
+        - gtk4-layer-shell
+        - gzip
+        - hunspell
+        - hunspell-en
+        - hunspell-en-GB
+        - hunspell-en-US
+        - ImageMagick
+        - imv
+        - inotify-tools
+        - jq
+        - kitty
+        - kitty-shell-integration
+        - kitty-terminfo
+        - liberation-fonts
+        - libinput-utils
+        - logrotate
+        - ly
+        - lynis
+        - man-db
+        - mpv
+        - neovim
+        - ninja-build
+        - nix
+        - nix-daemon
+        - nodejs
+        - npm
+        - papers
+        - papirus-icon-theme
+        - pipx
+        - pkgconf-pkg-config
+        - plymouth
+        - plymouth-theme-spinner
+        - podman
+        - podman-sequoia
+        - policycoreutils-python-utils
+        - pymol
+        - python3-xlib
+        - qt5ct
+        - slurp
+        - sqlite
+        - swappy
+        - thunar
+        - thunar-archive-plugin
+        - thunar-media-tags-plugin
+        - thunar-vcs-plugin
+        - thunar-volman
+        - transmission-gtk
+        - tree-sitter-cli
+        - udiskie
+        - xdg-desktop-portal
+        - xdg-user-dirs
+        - xdg-user-dirs-gtk
+        - xhost
+        - xorg-x11-server-Xorg
+        - xorg-x11-server-Xwayland
+        - xorg-x11-xauth
+        - zathura
+        - zathura-pdf-poppler
+        - zathura-plugins-all
+        - zsh
+        - input-remapper
+        - evtest
+        - linuxconsoletools
+        - vulkan-tools
+        - winetricks
+        - mangohud
+        # Terra bootstrap. terra-release-extras (and its deps terra-release /
+        # terra-gpg-keys) only exist in the terra repo and have no deps
+        # outside it, so a plain install is safe. Installing it drops
+        # /etc/yum.repos.d/terra-extras.repo (enabled, priority=150 -- Fedora
+        # wins conflicts) and the terra GPG keys onto the image. The actual
+        # terra *packages* are installed unscoped in the dnf module below, so
+        # their dependencies can be resolved against Fedora as well.
+        - terra-release-extras
+        - repo: code
+          install-weak-deps: false
+          packages:
+            - code
+        - repo: brave-browser
+          packages:
+            - brave-browser
+            - brave-origin

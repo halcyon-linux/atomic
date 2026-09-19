@@ -1,0 +1,42 @@
+name: build-image
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily rebuild at 06:00 UTC so the image picks up upstream Bazzite,
+    # COPR, and package updates automatically.
+    - cron: "0 6 * * *"
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "**.md"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bluebuild:
+    name: Build and Push Image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build custom image using BlueBuild
+        uses: blue-build/github-action@v1
+        with:
+          recipe: recipe.yml
+          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
+          registry_token: ${{ github.token }}
+          pr_event_number: ${{ github.event.number }}
+          maximize_build_space: true
+

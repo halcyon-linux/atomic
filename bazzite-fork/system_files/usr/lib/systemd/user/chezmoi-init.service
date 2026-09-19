@@ -1,0 +1,13 @@
+[Unit]
+Description=Initialize chezmoi dotfiles for the user
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!%h/.local/share/chezmoi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/chezmoi init --apply --force --no-tty https://github.com/aahsnr-configs/dots
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

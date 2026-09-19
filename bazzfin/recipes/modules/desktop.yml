@@ -1,0 +1,45 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - bieszczaders/kernel-cachyos-addons
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - scx-scheds
+        - scx-tools
+
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - sneexy/zen-browser
+        - lionheartp/Hyprland
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - cliphist
+        - hyprland-git
+        - hyprpwcenter
+        - noctalia-git
+        - nwg-look
+        - qt6ct
+        - xdg-desktop-portal-hyprland
+        - zen-browser
+
+  - type: akmods@latest
+    base: ogc
+    install:
+      - xone
+      - xpadneo
+    nvidia-driver: nvidia-open
+
+  - type: kargs
+    kargs:
+      - bluetooth.disable_ertm=1

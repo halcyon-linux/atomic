@@ -1,0 +1,65 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  # ---------------------------------------------------------------------
+  # Bazzite's system-management stack + tooling (TODO.md: bazzite system
+  # management). uupd owns automatic updates (system, Flatpak, brew,
+  # distrobox): the shared `ublue-os-just` package's `ujust update` and
+  # `ujust toggle-updates` recipes detect `uupd.timer` and drive it
+  # automatically, Bazzite-style. greenboot adds boot-time health checks
+  # with automatic rollback on failed boots. Cockpit (web console on
+  # :9090) is installed but kept OFF by default -- toggle with
+  # `ujust cockpit`. Hardware/monitoring tier is scoped to this Intel
+  # machine: no ryzenadj/amdsmi (AMD-only), no Framework EC tools.
+  # COPRs are removed after the transaction (cleanup: true) so nothing
+  # shadows Fedora post-build; terra-extras stays enabled on the installed
+  # system at priority=150 and will not displace these packages.
+  # ---------------------------------------------------------------------
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - ublue-os/packages # uupd, ublue-os-selinux-workarounds
+    install:
+      install-weak-deps: false
+      packages:
+        # Update daemon + boot health + SELinux fixes
+        # (bpftune-gaming comes from the terra repo in the module above)
+        - uupd
+        - ublue-os-selinux-workarounds
+        - greenboot
+        - greenboot-default-health-checks
+        # Bazaar: the modern Flathub app store (GTK4/libadwaita). Present in
+        # the ublue-os/packages COPR for the current Fedora release; the
+        # alternative is the Flathub build (io.github.kolunmi.Bazaar), which
+        # auto-updates via uupd -- swap if preferred.
+        - bazaar
+        # Cockpit web console (activated via `ujust cockpit`)
+        - cockpit-system
+        - cockpit-networkmanager
+        - cockpit-podman
+        - cockpit-selinux
+        - cockpit-files
+        - cockpit-storaged
+        # Hardware & monitoring (Intel machine)
+        - lm_sensors
+        - i2c-tools
+        - iio-sensor-proxy
+        - intel-gpu-tools
+        - btop
+        - duf
+        - stress-ng
+        - ydotool
+        # SELinux auditing & troubleshooting (the base image only has the
+        # core policy stack; Bazzite gets setroubleshoot-server implicitly
+        # via cockpit-selinux's dependency, and installs udica explicitly).
+        # setroubleshoot's util.py falls back to /var/lib/selinux as the
+        # policy store (F44 semanage.conf sets no store-root), which is
+        # wrong on ostree/bootc systems -- the script module further down
+        # applies Bazzite's /etc/selinux path patch after these install.
+        - setroubleshoot
+        - setroubleshoot-server
+        - setroubleshoot-plugins
+        - setools-console
+        - udica

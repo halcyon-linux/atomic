@@ -1,0 +1,8 @@
+[Unit]
+Description=Configure system-wide Flatpak remotes and install configured Flatpaks
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/hyprland-image/system-flatpak-setup

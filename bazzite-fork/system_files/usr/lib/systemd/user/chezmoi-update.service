@@ -1,0 +1,12 @@
+[Unit]
+Description=Update chezmoi dotfiles
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/chezmoi update
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

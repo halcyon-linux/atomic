@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+#
+# system-flatpak-setup - configure system-wide Flatpak remotes and install
+# the Flatpaks configured for the "system" scope in
+# /etc/hyprland-image/default-flatpaks.json (adapted from the upstream
+# default-flatpaks BlueBuild module under references/default-flatpaks/).
+#
+# Run at every boot (and daily) by system-flatpak-setup.service, which is
+# triggered by system-flatpak-setup.timer.
+#
+set -euo pipefail
+
+CONFIG_FILE="/etc/hyprland-image/default-flatpaks.json"
+LEGACY_REMOVE_LIST="/etc/hyprland-image/system-flatpaks-remove"
+
+if ! command -v flatpak >/dev/null 2>&1; then
+  echo "flatpak not found; skipping system Flatpak setup." >&2
+  exit 0
+fi
+
+notify_send_as_user() {
+  # Best-effort desktop notification in the active graphical session; never
+  # allowed to fail the service.
+  (
+    set +e
+    local loginctl_version user_name uid xdg_runtime_path
+    loginctl_version="$(loginctl --version | awk 'NR==1 {print $2}')"
+    if [[ "${loginctl_version}" -ge 256 ]]; then
+      user_name="$(loginctl list-users -j 2>/dev/null | jq -r '.[] | select(.state=="active") | .user' | head -n1)"
+      uid="$(loginctl list-users -j 2>/dev/null | jq -r '.[] | select(.state=="active") | .uid' | head -n1)"
+    else
+      user_name="$(loginctl list-users --output=json 2>/dev/null | jq -r '.[] | select(.state=="active") | .user' | head -n1)"
+      uid="$(loginctl list-users --output=json 2>/dev/null | jq -r '.[] | select(.state=="active") | .uid' | head -n1)"
+    fi
+    [[ -z "${user_name}" || -z "${uid}" ]] && exit 0
+    xdg_runtime_path="/run/user/${uid}"
+    sudo -u "${user_name}" DBUS_SESSION_BUS_ADDRESS="unix:path=${xdg_runtime_path}/bus" \
+      notify-send --app-name="Flatpak Installer" "$@"
+    exit 0
+  )
+}
+
+# Retry removal of any system Flatpaks that setup-flatpaks.sh (build time)
+# could not remove -- e.g. because a base image update reinstalled one.
+if [[ -f "${LEGACY_REMOVE_LIST}" ]]; then
+  while IFS= read -r pkg; do
+    [[ -z "${pkg}" || "${pkg}" =~ ^# ]] && continue
+    if flatpak --system info "${pkg}" >/dev/null 2>&1; then
+      echo "Removing leftover system Flatpak: ${pkg}"
+      flatpak --system uninstall --noninteractive "${pkg}" || true
+    fi
+  done < "${LEGACY_REMOVE_LIST}"
+fi
+
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+  echo "No default-flatpaks configuration found at ${CONFIG_FILE}; nothing to do."
+  exit 0
+fi
+
+readarray -t configs < <(jq -c '.[] | select(.scope=="system")' "${CONFIG_FILE}")
+if [[ ${#configs[@]} -eq 0 ]]; then
+  echo "No system-scope default-flatpaks configuration; nothing to install."
+  exit 0
+fi
+
+for cfg in "${configs[@]}"; do
+  repo_url=$(jq -r '.repo.url' <<<"${cfg}")
+  repo_name=$(jq -r '.repo.name' <<<"${cfg}")
+  repo_title=$(jq -r '.repo.title' <<<"${cfg}")
+  notify=$(jq -r '.notify' <<<"${cfg}")
+  keep_fedora=$(jq -r '.keep_fedora' <<<"${cfg}")
+  readarray -t install < <(jq -r '.install[]' <<<"${cfg}")
+
+  if [[ "${keep_fedora}" != "true" ]]; then
+    if flatpak remotes --system --columns=name 2>/dev/null | grep -qx fedora; then
+      echo "Removing system flatpak remote 'fedora'"
+      flatpak remote-delete --system fedora --force || true
+    fi
+    if flatpak remotes --system --columns=name 2>/dev/null | grep -qx fedora-testing; then
+      echo "Removing system flatpak remote 'fedora-testing'"
+      flatpak remote-delete --system fedora-testing --force || true
+    fi
+  fi
+
+  echo "Configuring system Flatpak remote '${repo_name}' (${repo_title})"
+  flatpak remote-add --system --if-not-exists "${repo_name}" "${repo_url}" --title="${repo_title}"
+  flatpak remote-modify --system --enable "${repo_name}"
+
+  if [[ ${#install[@]} -gt 0 ]]; then
+    [[ "${notify}" == "true" ]] && notify_send_as_user \
+      "Installing ${#install[@]} system Flatpak(s) from ${repo_title}..."
+    echo "Installing system Flatpaks: ${install[*]}"
+    flatpak install --system --noninteractive "${repo_name}" "${install[@]}"
+    [[ "${notify}" == "true" ]] && notify_send_as_user \
+      "Finished installing system Flatpak(s) from ${repo_title}."
+  fi
+done
+
+echo "System Flatpak setup completed."

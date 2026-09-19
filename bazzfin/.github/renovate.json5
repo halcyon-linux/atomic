@@ -1,0 +1,24 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+  // The image tracks a rolling akmods tag so there is nothing to pin here.
+  // Keep GitHub Actions up to date.
+  "github-actions": { enabled: true },
+  timezone: "UTC",
+  schedule: ["before 6am"],
+  prHourlyLimit: 2,
+  labels: ["renovate"],
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Bump the pinned Fedora release used to pull the ublue-os/akmods 'ogc' kernel-rpms cache once base-main moves to a newer Fedora release.",
+      managerFilePatterns: ["/^recipes/recipe\\.yml$/"],
+      matchStrings: ["ghcr\\.io/ublue-os/akmods:ogc-(?<currentValue>\\d+)"],
+      depNameTemplate: "ghcr.io/ublue-os/akmods",
+      packageNameTemplate: "ghcr.io/ublue-os/akmods",
+      datasourceTemplate: "docker",
+      extractVersionTemplate: "^ogc-(?<version>\\d+)$",
+      versioningTemplate: "regex:^(?<major>\\d+)$",
+    },
+  ],
+}

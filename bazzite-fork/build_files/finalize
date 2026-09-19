@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# finalize - last cleanup pass in the "SERVICES+FINALIZE" RUN instruction of
+# the Containerfile, run right before image-info / build-initramfs.
+#
+# IMPORTANT: /var/cache and /var/log are active `--mount=type=cache`
+# destinations for the ENTIRE RUN instruction this script runs in (see the
+# Containerfile). A directory that is currently a mount point can never be
+# removed, recreated, or replaced with rm/rmdir -- the kernel returns
+# "Device or resource busy" (EBUSY). This script must therefore never try to
+# delete or recreate /var/cache or /var/log. Their build-time contents live
+# in the cache mount and are discarded automatically once the RUN
+# instruction ends; whatever /var/cache and /var/log look like in the
+# underlying image layer (from the base image / earlier RUN steps) is what
+# ships in the final image, untouched by this script.
+#
+set -eoux pipefail
+
+dnf5 config-manager setopt keepcache=0
+
+rm -rf /tmp/* || true
+
+# Sweep every top-level /var directory except the two active cache mounts.
+# `find /var -mindepth 1 -maxdepth 1` is used instead of a `/var/*` glob so
+# this doesn't depend on shell globbing behavior, and `-exec ... +` batches
+# the removals into as few `rm` invocations as possible.
+find /var -mindepth 1 -maxdepth 1 -type d \! -name cache \! -name log -exec rm -rf {} +
+
+# Copy entries into /usr/lib/passwd and /usr/lib/group so that users created
+# during the build (the brew build user, ...) exist on the deployed
+# system, where /etc is shared (and reset) across deployments.
+relocate_accounts() {
+    local etc="$1" lib="$2" shadow="$3" keep="$4" reset="$5"
+    local out line name tmp
+
+    [ -f "$etc" ] || return 0
+    out=$(grep -vE -- "$keep" "$etc") || true
+    [ -n "$out" ] || return 0
+
+    echo
+    echo "Moving the following entries from ${etc} to ${lib}"
+    echo "$out"
+
+    # Write through a temp file in the same directory so the update to $lib
+    # is atomic (a crash mid-write can't leave a truncated/partial file).
+    tmp="$(mktemp "${lib}.XXXXXX")"
+    { cat "$lib" 2>/dev/null || true; echo "$out"; } > "$tmp"
+    mv -f "$tmp" "$lib"
+
+    # Fail the build rather than ship an image where these went missing.
+    while IFS= read -r line; do
+        if ! grep -qxF -- "$line" "$lib"; then
+            echo "ERROR: '${line}' did not persist in ${lib}" >&2
+            return 1
+        fi
+    done <<< "$out"
+
+    # %b (not %s) so that a literal "\n" in $reset (e.g. the group case
+    # below, which resets two entries at once) is emitted as a real newline
+    # instead of the two literal characters backslash-n.
+    printf '%b\n' "$reset" > "$etc"
+
+    if [ -f "$shadow" ]; then
+        while IFS= read -r line; do
+            name="${line%%:*}"
+            sed -i "/^${name}:/d" "$shadow"
+        done <<< "$out"
+    fi
+}
+
+relocate_accounts /etc/passwd /usr/lib/passwd /etc/shadow \
+    'root' 'root:x:0:0:root:/root:/bin/bash'
+relocate_accounts /etc/group /usr/lib/group /etc/gshadow \
+    'root|wheel' 'root:x:0:\nwheel:x:10:'
+
+# Extra lock/state files created by container processes that might cause
+# issues. Some overlap with the /var sweep above (harmless: rm -rf on an
+# already-removed path is a no-op) and is kept as defense-in-depth in case
+# that sweep's logic ever changes. /var/cache and /var/log are deliberately
+# NOT in this list -- see the note at the top of this file.
+rm -rf \
+    /etc/.pwd.lock \
+    /etc/passwd- \
+    /etc/group- \
+    /etc/shadow- \
+    /etc/gshadow- \
+    /etc/subuid- \
+    /etc/subgid- \
+    /var/.docker \
+    /var/lib/dnf \
+    /var/mail \
+    /var/spool \
+    /var/tmp \
+    /var/multicast
+
+# Recreate /var/tmp with the standard sticky, world-writable permissions.
+# /var/cache and /var/log are NOT recreated here: they're still active cache
+# mounts at this point in the build, so a mkdir/chmod here would only affect
+# the transient cache content, not anything that gets committed to the
+# final image.
+mkdir -p /var/tmp
+chmod -R 1777 /var/tmp

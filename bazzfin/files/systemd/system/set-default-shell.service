@@ -1,0 +1,14 @@
+[Unit]
+Description=Ensure zsh is the default login shell for root and local users
+ConditionPathExists=/usr/bin/zsh
+RequiresMountsFor=/home
+After=local-fs.target
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/hyprland-image/set-default-shell
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

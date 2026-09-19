@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# curl helper that uses a GitHub token when one is mounted at /run/secrets.
+if [[ -s /run/secrets/GITHUB_TOKEN ]]; then
+  GITHUB_TOKEN=$(< /run/secrets/GITHUB_TOKEN)
+  echo "Using GITHUB_TOKEN from /run/secrets/GITHUB_TOKEN for authentication." >&2
+  AUTH_HEADER="Authorization: Bearer $GITHUB_TOKEN"
+elif [[ -f /run/secrets/GITHUB_TOKEN ]]; then
+  echo "WARNING: /run/secrets/GITHUB_TOKEN is empty; falling back to unauthenticated requests." >&2
+  AUTH_HEADER=""
+else
+  echo "GITHUB_TOKEN secret not found. Using unauthenticated requests." >&2
+  AUTH_HEADER=""
+fi
+
+URL="${1:?usage: ghcurl <url> [curl options]}"
+shift
+OPTIONS=("$@")
+
+if [[ -n "${AUTH_HEADER}" ]]; then
+  curl --fail --retry 3 --retry-delay 2 --retry-max-time 60 -sSL -H "$AUTH_HEADER" "${OPTIONS[@]}" "$URL"
+else
+  curl --fail --retry 3 --retry-delay 2 --retry-max-time 60 -sSL "${OPTIONS[@]}" "$URL"
+fi

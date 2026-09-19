@@ -1,0 +1,39 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  - type: justfiles
+    validate: false
+    install: true
+
+  # Everything the modules don't already enable for you.
+  - type: systemd
+    system:
+      enabled:
+        - accounts-daemon.service
+        - podman.socket
+        # - ly@tty2.service
+        - nix.mount
+        - nix-daemon
+        - set-default-shell.service
+        - input-remapper.service
+        - scx_loader.service
+        # Bazzite's system-management stack (uupd owns automatic updates;
+        # greenboot runs boot health checks and arms the rollback trigger)
+        - uupd.timer
+        - greenboot-healthcheck.service
+        - greenboot-set-rollback-trigger.service
+      masked:
+        #  - getty@tty2.service
+        - nvidia-persistenced.service
+        - nvidia-powerd.service
+        # uupd owns automatic updates; keep rpm-ostreed's own automatic
+        # timer out of the way (belt-and-braces on top of
+        # AutomaticUpdatePolicy=none in /etc/rpm-ostreed.conf)
+        - rpm-ostreed-automatic.timer
+    user:
+      enabled:
+        - pyprland.service
+        - brew-packages-setup.service
+
+  - type: initramfs

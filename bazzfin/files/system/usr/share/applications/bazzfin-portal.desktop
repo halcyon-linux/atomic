@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=bazzfin portal
+GenericName=Configuration Tool
+Comment=Manage bazzfin: updates, software, system toggles
+Exec=bazzfin-portal
+Icon=system-run
+Categories=System;Utility;
+Keywords=bazzfin;portal;update;bazaar;cockpit;gaming;
+StartupNotify=false
+NoDisplay=false

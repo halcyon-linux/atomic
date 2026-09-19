@@ -1,0 +1,474 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+
+version: 1
+name: bazzfin
+description: >-
+  A desktop-free Universal Blue base with the NVIDIA (open) driver, the
+  Hyprland Wayland compositor and the ly display manager baked in, plus
+  every application, font, Flatpak, dotfile and Homebrew package needed
+  at first login.
+
+base-image: ghcr.io/ublue-os/base-main
+image-version: latest
+
+modules:
+  # -------------------------------------------------------------------------
+  # Modular build: these from-file includes are an exact 1:1 split of the
+  # inline modules below. To switch to the modular layout, delete the inline
+  # entries and uncomment the from-file lines here (paths are relative to
+  # recipes/): https://blue-build.org/how-to/multiple-files/
+  # - from-file: bazzfin-base.yml
+  # - from-file: bazzfin-kernel.yml
+  # - from-file: bazzfin-packages-core.yml
+  # - from-file: bazzfin-packages-terra.yml
+  # - from-file: bazzfin-packages-system.yml
+  # - from-file: bazzfin-desktop.yml
+  # - from-file: bazzfin-apps.yml
+  # - from-file: bazzfin-flatpaks.yml
+  # - from-file: bazzfin-services.yml
+  # -------------------------------------------------------------------------
+  - type: signing
+
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # ---------------------------------------------------------------------
+  # /opt symlink fix (Brave's RPM installs into /opt, which doesn't exist
+  # as a real directory yet on a fresh ostree tree), package removal
+  # inherited unconditionally from the base image, and a sanity check that
+  # the base image still ships /usr/share/ublue-os/justfile (installed by
+  # the `ublue-os-just` package). We stopped shipping our own override of
+  # that file (see the `justfiles` module near the bottom) so that the
+  # default recipes Bazzite, Bluefin and Aurora all inherit from the same
+  # package -- bios, clean-system, distrobox-assemble, configure-broadcom-wl,
+  # etc. -- stay reachable under `ujust` here too. If a future base image
+  # ever drops that package, this fails the build loudly instead of
+  # silently losing `ujust`.
+  # ---------------------------------------------------------------------
+  - type: script
+    snippets:
+      - mkdir -p /usr/lib/opt
+      - '[ -L /opt ] && [ "$(readlink /opt)" = "var/opt" ] && rm -f /opt && ln -s usr/lib/opt /opt || true'
+      - 'test -f /usr/share/ublue-os/justfile || { echo "ERROR: /usr/share/ublue-os/justfile missing -- is ublue-os-just still provided by the base image?" >&2; exit 1; }'
+    scripts:
+      - global-remove.sh
+
+  # ---------------------------------------------------------------------
+  # Swap in Universal Blue's "ogc" kernel (Open Gaming Collective --
+  # https://github.com/OpenGamingCollective/kernel-packages-fedora),
+  # the same gaming-oriented kernel Bazzite ships. The `akmods` module
+  # further down can't do this itself: per BlueBuild's docs, its
+  # `base:` field only selects which *pre-built kmod/driver set* to
+  # fetch for a kernel that's already running -- "custom kernels are
+  # not supported" by the module. The package swap has to be done by
+  # hand, the same way Bazzite's own build does it:
+  #   https://github.com/ublue-os/bazzite/blob/main/build_files/install-kernel-akmods
+  #
+  # `44` is the Fedora release base-main currently tracks (Fedora
+  # Linux 44, released 2026-04-28). Bump it whenever Universal Blue's
+  # base images move to a new Fedora release -- ghcr.io/ublue-os/akmods
+  # publishes a floating "ogc-<fedora_version>" tag per release,
+  # rebuilt daily: https://github.com/ublue-os/akmods#how-its-organized
+  # The renovate custom manager (.github/renovate.json5) tries to keep
+  # this current automatically; treat that as a nice-to-have, not a
+  # guarantee -- double check it after any base-image Fedora bump.
+  #
+  # `copy`'s `from:` takes a plain image reference (no `stages:` block
+  # needed), so this becomes a straight
+  #   COPY --from=ghcr.io/ublue-os/akmods:ogc-44 /kernel-rpms /tmp/ogc-kernel-rpms
+  # https://blue-build.org/reference/modules/copy/
+  # ---------------------------------------------------------------------
+  - type: copy
+    from: ghcr.io/ublue-os/akmods:ogc-44
+    src: /kernel-rpms
+    dest: /tmp/ogc-kernel-rpms
+
+  - type: script
+    scripts:
+      - install-ogc-kernel.sh
+
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://raw.githubusercontent.com/terrapkg/subatomic-repos/main/terra.repo
+        - https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+        - vscode.repo # files/dnf/vscode.repo
+      keys:
+        - https://packages.microsoft.com/keys/microsoft.asc
+        - https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+    install:
+      install-weak-deps: false
+      packages:
+        - accountsservice
+        - bleachbit
+        - bluez-tools
+        - brightnessctl
+        - cargo
+        - cmake
+        - cronie
+        - curl
+        - ddcutil
+        - direnv
+        - distrobox
+        - emacs-pgtk
+        - fail2ban
+        - fastfetch
+        - file-roller
+        - fontconfig
+        - fonts-filesystem
+        - gcc-c++
+        - git
+        - gnome-keyring
+        - gnome-tweaks
+        - go
+        - grim
+        - gsettings-desktop-schemas
+        - gtk4-layer-shell
+        - gzip
+        - hunspell
+        - hunspell-en
+        - hunspell-en-GB
+        - hunspell-en-US
+        - ImageMagick
+        - imv
+        - inotify-tools
+        - jq
+        - kitty
+        - kitty-shell-integration
+        - kitty-terminfo
+        - liberation-fonts
+        - libinput-utils
+        - logrotate
+        - ly
+        - lynis
+        - man-db
+        - mpv
+        - neovim
+        - ninja-build
+        - nix
+        - nix-daemon
+        - nodejs
+        - npm
+        - papers
+        - papirus-icon-theme
+        - pipx
+        - pkgconf-pkg-config
+        - plymouth
+        - plymouth-theme-spinner
+        - podman
+        - podman-sequoia
+        - policycoreutils-python-utils
+        - pymol
+        - python3-xlib
+        - qt5ct
+        - slurp
+        - sqlite
+        - swappy
+        - thunar
+        - thunar-archive-plugin
+        - thunar-media-tags-plugin
+        - thunar-vcs-plugin
+        - thunar-volman
+        - transmission-gtk
+        - tree-sitter-cli
+        - udiskie
+        - xdg-desktop-portal
+        - xdg-user-dirs
+        - xdg-user-dirs-gtk
+        - xhost
+        - xorg-x11-server-Xorg
+        - xorg-x11-server-Xwayland
+        - xorg-x11-xauth
+        - zathura
+        - zathura-pdf-poppler
+        - zathura-plugins-all
+        - zsh
+        - input-remapper
+        - evtest
+        - linuxconsoletools
+        - vulkan-tools
+        - winetricks
+        - mangohud
+        # Terra bootstrap. terra-release-extras (and its deps terra-release /
+        # terra-gpg-keys) only exist in the terra repo and have no deps
+        # outside it, so a plain install is safe. Installing it drops
+        # /etc/yum.repos.d/terra-extras.repo (enabled, priority=150 -- Fedora
+        # wins conflicts) and the terra GPG keys onto the image. The actual
+        # terra *packages* are installed unscoped in the dnf module below, so
+        # their dependencies can be resolved against Fedora as well.
+        - terra-release-extras
+        - repo: code
+          install-weak-deps: false
+          packages:
+            - code
+        - repo: brave-browser
+          packages:
+            - brave-browser
+            - brave-origin
+
+  # ---------------------------------------------------------------------
+  # Terra packages, installed WITHOUT repo scoping.
+  #
+  # BlueBuild turns `repo: <id>` package entries into
+  # `dnf install --repoid <id>`, which confines the WHOLE transaction --
+  # dependency resolution included -- to that single repo. terra-gamescope
+  # pulls SDL2/X11 libs that only exist in Fedora, so a terra-extras-scoped
+  # install fails with "nothing provides libSDL2-2.0.so.0 ... from
+  # terra-extras" (and then trips over terra-extras' i686 multilib builds).
+  #
+  # By this point terra-release-extras (module above) has enabled the
+  # terra-extras repo with priority=150, so Fedora wins for any shared
+  # dependency. The terra repo file is re-added here because `cleanup: true`
+  # removed it at the end of the module above (cleanup only removes repos
+  # added by a module; the package-installed terra-extras.repo persists).
+  # ---------------------------------------------------------------------
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://raw.githubusercontent.com/terrapkg/subatomic-repos/main/terra.repo
+    install:
+      install-weak-deps: false
+      # terra-extras deliberately ships packages that conflict with Fedora
+      # (its own zlib, patched WINE, ...). priority=150 already makes Fedora
+      # win shared deps; this is a belt-and-braces guard (same fix zirconium
+      # ships) so the solver can never pull terra's zlib over Fedora's.
+      exclude:
+        - zlib
+      packages:
+        - terra-gamescope
+        - terra-gamescope-libs
+        - zed
+        - umu-launcher
+        - umu-wrapper
+        - 8bitdo-udev-rules
+        # bpftune-gaming (adaptive kernel tuning) is built by Terra and
+        # lives in the terra repo -- NOT in any ublue COPR (Bazzite relies
+        # on the same fact via its `*terra*.priority=1` setup).
+        - bpftune-gaming
+
+  # ---------------------------------------------------------------------
+  # Bazzite's system-management stack + tooling (TODO.md: bazzite system
+  # management). uupd owns automatic updates (system, Flatpak, brew,
+  # distrobox): the shared `ublue-os-just` package's `ujust update` and
+  # `ujust toggle-updates` recipes detect `uupd.timer` and drive it
+  # automatically, Bazzite-style. greenboot adds boot-time health checks
+  # with automatic rollback on failed boots. Cockpit (web console on
+  # :9090) is installed but kept OFF by default -- toggle with
+  # `ujust cockpit`. Hardware/monitoring tier is scoped to this Intel
+  # machine: no ryzenadj/amdsmi (AMD-only), no Framework EC tools.
+  # COPRs are removed after the transaction (cleanup: true) so nothing
+  # shadows Fedora post-build; terra-extras stays enabled on the installed
+  # system at priority=150 and will not displace these packages.
+  # ---------------------------------------------------------------------
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - ublue-os/packages # uupd, ublue-os-selinux-workarounds
+    install:
+      install-weak-deps: false
+      packages:
+        # Update daemon + boot health + SELinux fixes
+        # (bpftune-gaming comes from the terra repo in the module above)
+        - uupd
+        - ublue-os-selinux-workarounds
+        - greenboot
+        - greenboot-default-health-checks
+        # Bazaar: the modern Flathub app store (GTK4/libadwaita). Present in
+        # the ublue-os/packages COPR for the current Fedora release; the
+        # alternative is the Flathub build (io.github.kolunmi.Bazaar), which
+        # auto-updates via uupd -- swap if preferred.
+        - bazaar
+        # Cockpit web console (activated via `ujust cockpit`)
+        - cockpit-system
+        - cockpit-networkmanager
+        - cockpit-podman
+        - cockpit-selinux
+        - cockpit-files
+        - cockpit-storaged
+        # Hardware & monitoring (Intel machine)
+        - lm_sensors
+        - i2c-tools
+        - iio-sensor-proxy
+        - intel-gpu-tools
+        - btop
+        - duf
+        - stress-ng
+        - ydotool
+        # SELinux auditing & troubleshooting (the base image only has the
+        # core policy stack; Bazzite gets setroubleshoot-server implicitly
+        # via cockpit-selinux's dependency, and installs udica explicitly).
+        # setroubleshoot's util.py falls back to /var/lib/selinux as the
+        # policy store (F44 semanage.conf sets no store-root), which is
+        # wrong on ostree/bootc systems -- the script module further down
+        # applies Bazzite's /etc/selinux path patch after these install.
+        - setroubleshoot
+        - setroubleshoot-server
+        - setroubleshoot-plugins
+        - setools-console
+        - udica
+
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - bieszczaders/kernel-cachyos-addons
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - scx-scheds
+        - scx-tools
+
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - sneexy/zen-browser
+        - lionheartp/Hyprland
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - cliphist
+        - hyprland-git
+        - hyprpwcenter
+        - noctalia-git
+        - nwg-look
+        - qt6ct
+        - xdg-desktop-portal-hyprland
+        - zen-browser
+
+  - type: akmods@latest
+    base: ogc
+    install:
+      - xone
+      - xpadneo
+    nvidia-driver: nvidia-open
+
+  - type: kargs
+    kargs:
+      - bluetooth.disable_ertm=1
+
+  # ly's SELinux context, plus apps installed from upstream release
+  # artifacts rather than a package repository (jq/curl/gcc are already
+  # installed at this point).
+  - type: script
+    snippets:
+      # Bazzite sets UserspaceHID=true in /etc/bluetooth/input.conf
+      # (their build does the same sed) so DualSense/DualShock and
+      # similar controllers expose their full HID profile (gyro,
+      # rumble) over Bluetooth instead of the reduced SPP profile.
+      - test -f /etc/bluetooth/input.conf && sed -i 's/#UserspaceHID.*/UserspaceHID=true/' /etc/bluetooth/input.conf || true
+      - semanage fcontext -a -t xdm_exec_t /usr/bin/ly 2>/dev/null || semanage fcontext -m -t xdm_exec_t /usr/bin/ly 2>/dev/null || true
+      - restorecon -v /usr/bin/ly 2>/dev/null || true
+      # setroubleshoot's util.py hardcodes /var/lib/selinux as the policy
+      # store, but on ostree/bootc systems it lives under /etc/selinux --
+      # without this patch setroubleshootd cannot analyze denials. Same
+      # sed Bazzite applies in its finalize stage (runs after the dnf
+      # modules, so setroubleshoot is installed by now).
+      - test -n "$(ls /usr/lib/python3.*/site-packages/setroubleshoot/util.py 2>/dev/null)" && sed -i 's#/var/lib/selinux#/etc/selinux#g' /usr/lib/python3.*/site-packages/setroubleshoot/util.py || true
+    scripts:
+      - install-obsidian.sh
+      - install-zotero.sh
+      - install-pyprland.sh
+      # - install-texlive.sh
+
+  # Dotfiles: installs chezmoi itself + the init/update services.
+  - type: chezmoi
+    repository: https://github.com/aahsnr-work/bazzfin
+    file-conflict-policy: replace
+
+  # Pre-seed /etc/skel at build time (same as the old setup-dotfiles.sh)
+  # so brand-new users get the dotfiles immediately at first login instead
+  # of waiting on chezmoi-init.service. Must run after the chezmoi module.
+  #
+  # -v makes chezmoi log each file it writes, and the `find` afterward
+  # lists what actually landed in /etc/skel — both purely so the build
+  # log itself proves the apply did something, instead of only proving
+  # the command exited 0.
+  # - type: script
+  #   snippets:
+  #     - HOME=/etc/skel /usr/bin/chezmoi init --apply --force --no-tty -v https://github.com/aahsnr-work/bazzfin
+  #     - echo "== /etc/skel contents after chezmoi apply ==" && find /etc/skel -maxdepth 3
+
+  # Homebrew itself (installer + update/upgrade timers), same intervals
+  # as the old brew-update.timer / brew-upgrade.timer.
+  - type: brew
+    update-interval: "6h"
+    update-wait-after-boot: "10m"
+    upgrade-interval: "8h"
+    upgrade-wait-after-boot: "30m"
+
+  # Flathub remotes for both scopes. Add Flatpak IDs to `install:` as needed
+  # (both lists were empty in the old setup-default-flatpaks.sh too).
+  - type: default-flatpaks
+    configurations:
+      - scope: system
+        notify: true
+        install: []
+      - scope: user
+        notify: true
+        install:
+          - com.github.tchx84.Flatseal
+          - org.onlyoffice.desktopeditors
+          - com.bitwarden.desktop
+          - com.ticktick.TickTick
+          - com.valvesoftware.Steam
+          - net.lutris.Lutris
+          - com.heroicgameslauncher.hgl
+          - com.github.Matoking.protontricks
+          - com.vysp3r.ProtonPlus
+          - org.freedesktop.Platform.VulkanLayer.MangoHud//25.08
+          - org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08
+
+  - type: fonts
+    fonts:
+      nerd-fonts:
+        - JetBrainsMono
+        - NerdFontsSymbolsOnly
+      google-fonts:
+        - JetBrains Mono
+        - Noto Emoji
+        - Noto Color Emoji
+
+  - type: justfiles
+    validate: false
+    install: true
+
+  # Everything the modules don't already enable for you.
+  - type: systemd
+    system:
+      enabled:
+        - accounts-daemon.service
+        - podman.socket
+        # - ly@tty2.service
+        - nix.mount
+        - nix-daemon
+        - set-default-shell.service
+        - input-remapper.service
+        - scx_loader.service
+        # Bazzite's system-management stack (uupd owns automatic updates;
+        # greenboot runs boot health checks and arms the rollback trigger)
+        - uupd.timer
+        - greenboot-healthcheck.service
+        - greenboot-set-rollback-trigger.service
+      masked:
+        #  - getty@tty2.service
+        - nvidia-persistenced.service
+        - nvidia-powerd.service
+        # uupd owns automatic updates; keep rpm-ostreed's own automatic
+        # timer out of the way (belt-and-braces on top of
+        # AutomaticUpdatePolicy=none in /etc/rpm-ostreed.conf)
+        - rpm-ostreed-automatic.timer
+    user:
+      enabled:
+        - pyprland.service
+        - brew-packages-setup.service
+
+  - type: initramfs

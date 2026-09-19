@@ -1,0 +1,36 @@
+# Brewfile — managed by bazzite-hyprland image
+# Deployed to /etc/skel/.config/Brewfile (applied to new users)
+# and /usr/share/ublue-os/Brewfile (for ujust brew-bundle).
+#
+# To install all packages: brew bundle --file=~/.config/Brewfile
+# To update:               brew bundle --file=~/.config/Brewfile --force
+# To check status:         brew bundle check --file=~/.config/Brewfile
+
+# Taps (all packages below come from core tap by default)
+# tap "homebrew/core"  # implicit
+
+# CLI Tools
+brew "atuin"       # Shell history sync & search
+brew "bat"         # cat replacement with syntax highlighting
+brew "btop"        # Resource monitor
+brew "bun"         # JavaScript/TypeScript runtime & package manager
+brew "cava"        # Console audio visualizer
+brew "chafa"       # Terminal image viewer
+brew "direnv"      # Per-directory environment variables
+brew "dust"        # du replacement
+brew "eza"         # ls replacement
+brew "fd"          # find replacement
+brew "fzf"         # Fuzzy finder
+brew "gh"          # GitHub CLI
+brew "git"         # Version control
+brew "git-lfs"     # Git Large File Storage
+brew "gnuplot"     # Plotting utility
+brew "lazygit"     # Terminal UI for git
+brew "pandoc"      # Universal document converter
+brew "pixi"        # Fast conda-compatible package manager
+brew "ripgrep"     # Fast grep replacement
+brew "starship"    # Cross-shell prompt
+brew "tealdeer"    # Fast tldr client
+brew "uv"          # Python package/project manager
+brew "yazi"        # Terminal file manager
+brew "zellij"      # Terminal multiplexer

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# brew-package-setup - automated zero-intervention Homebrew package installer
+#
+# Runs on user login as a systemd user service. Ensures Homebrew is initialized
+# and installs all packages defined in /etc/hyprland-image/brew-packages.
+#
+set -euo pipefail
+
+BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+PACKAGE_LIST="/etc/hyprland-image/brew-packages"
+DONE_MARKER="${HOME}/.cache/brew-packages-setup-done"
+
+if [[ ! -x "${BREW_BIN}" ]]; then
+  echo "Homebrew binary not found at ${BREW_BIN}; waiting for brew-setup.service." >&2
+  exit 1
+fi
+
+if [[ ! -f "${PACKAGE_LIST}" ]]; then
+  echo "No package list found at ${PACKAGE_LIST}; nothing to install." >&2
+  mkdir -p "$(dirname "${DONE_MARKER}")"
+  touch "${DONE_MARKER}"
+  exit 0
+fi
+
+# Load Homebrew environment
+eval "$("${BREW_BIN}" shellenv)"
+
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_ENV_HINTS=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+
+# Determine packages that are not yet installed
+MISSING_PACKAGES=()
+while IFS= read -r pkg || [[ -n "${pkg}" ]]; do
+  # Skip comments and blank lines
+  [[ -z "${pkg}" || "${pkg}" =~ ^# ]] && continue
+  if ! "${BREW_BIN}" list --formula "${pkg}" &>/dev/null; then
+    MISSING_PACKAGES+=("${pkg}")
+  fi
+done < "${PACKAGE_LIST}"
+
+if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
+  echo "Installing missing Homebrew packages: ${MISSING_PACKAGES[*]}"
+  "${BREW_BIN}" install "${MISSING_PACKAGES[@]}" || {
+    echo "WARNING: One or more Homebrew packages failed to install. Will retry on next login." >&2
+    exit 1
+  }
+else
+  echo "All Homebrew packages are already installed."
+fi
+
+mkdir -p "$(dirname "${DONE_MARKER}")"
+touch "${DONE_MARKER}"
+echo "Homebrew package setup completed successfully."

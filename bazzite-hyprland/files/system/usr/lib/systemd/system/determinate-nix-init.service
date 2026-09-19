@@ -1,0 +1,17 @@
+[Unit]
+Description=Determinate Nix Bootstrap for Atomic OSTree
+ConditionPathExists=!/nix/receipt.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+ExecStart=/usr/bin/bash -c '\
+  curl --proto "=https" --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install ostree --no-confirm \
+'
+
+[Install]
+WantedBy=multi-user.target
+

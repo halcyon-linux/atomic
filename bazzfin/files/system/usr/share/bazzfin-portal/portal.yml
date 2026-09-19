@@ -1,0 +1,180 @@
+# ---------------------------------------------------------------------------
+# bazzfin portal — declarative UI configuration.
+#
+# The portal app (files/system/usr/bin/bazzfin-portal, a GTK3/PyGObject tool)
+# renders one page per category and one card per item, exactly like Bazzite's
+# Portal is driven by /usr/share/yafti/yafti.yml (yafti-gtk). Same schema idea:
+#
+#   - id: <unique-id>            used for widget names
+#     title: <str>               card title
+#     description: <str>         card body text (plain text)
+#     status_script: <str>       OPTIONAL; exit 0 = "installed/active", nonzero
+#                                = otherwise. Shown as a status chip.
+#     terminal: <bool>           OPTIONAL (default true); run `script` inside a
+#                                kitty window so output and sudo prompts are
+#                                visible. Set false for fire-and-forget GUI
+#                                commands (xdg-open, bazaar, ...).
+#     options:                   one button per option
+#       - id: <unique-id>
+#         label: <str>
+#         script: <str>          shell command to run
+#
+# Add cards here — no Python changes needed for new actions.
+# ---------------------------------------------------------------------------
+categories:
+  - id: welcome
+    title: Welcome
+    items:
+      - id: wiki
+        title: Documentation
+        description: Read the project wiki — install guide, recipes, troubleshooting.
+        terminal: false
+        options:
+          - id: open-wiki
+            label: Open wiki
+            script: xdg-open https://github.com/aahsnr-work/bazzfin/wiki
+      - id: recipe-source
+        title: The recipe
+        description: The whole image is declared in recipes/recipe.yml (comments explain every module).
+        terminal: false
+        options:
+          - id: open-recipe
+            label: Open recipe.yml
+            script: xdg-open https://github.com/aahsnr-work/bazzfin/blob/main/recipes/recipe.yml
+
+  - id: software
+    title: Software
+    items:
+      - id: bazaar
+        title: Bazaar
+        description: The modern app store for Flathub — discover and install Flatpak apps.
+        terminal: false
+        options:
+          - id: open-bazaar
+            label: Open Bazaar
+            script: bazaar
+      - id: protonup-qt
+        title: ProtonUp-Qt
+        description: Install and update Proton-GE and Wine-GE builds for Steam/Lutris (Flathub).
+        status_script: flatpak info --user --app net.davidotek.pupgui2 >/dev/null 2>&1
+        options:
+          - id: install
+            label: Install
+            script: flatpak install --user --assumeyes --noninteractive flathub net.davidotek.pupgui2
+      - id: bottles
+        title: Bottles
+        description: Run Windows software with Wine/Proton prefixes (Flathub).
+        status_script: flatpak info --user --app com.usebottles.bottles >/dev/null 2>&1
+        options:
+          - id: install
+            label: Install
+            script: flatpak install --user --assumeyes --noninteractive flathub com.usebottles.bottles
+      - id: discord
+        title: Discord
+        description: Voice, video and text chat (Flathub).
+        status_script: flatpak info --user --app com.discordapp.Discord >/dev/null 2>&1
+        options:
+          - id: install
+            label: Install
+            script: flatpak install --user --assumeyes --noninteractive flathub com.discordapp.Discord
+
+  - id: manage
+    title: Manage bazzfin
+    items:
+      - id: update
+        title: Update system, Flatpaks, Homebrew & distrobox
+        description: Runs the shared `ujust update` recipe — driven by uupd (the same one-shot pass the automatic timer uses).
+        options:
+          - id: run
+            label: Update now
+            script: ujust update
+      - id: auto-updates
+        title: Automatic updates
+        description: Enable or disable the uupd automatic-update timer (ujust toggle-updates).
+        status_script: systemctl is-enabled --quiet uupd.timer
+        options:
+          - id: enable
+            label: Enable
+            script: ujust toggle-updates enable
+          - id: disable
+            label: Disable
+            script: ujust toggle-updates disable
+      - id: deployment-status
+        title: Deployment status
+        description: Show the currently booted bootc/rpm-ostree deployment.
+        options:
+          - id: show
+            label: Show status
+            script: ujust status
+      - id: rebase
+        title: Rebase / update image
+        description: Rebase this machine onto the latest (or a chosen) image tag — ujust rebase.
+        options:
+          - id: run
+            label: Rebase
+            script: ujust rebase
+      - id: rollback
+        title: Roll back
+        description: Stage a rollback to the previous deployment and reboot into it.
+        options:
+          - id: run
+            label: Roll back
+            script: ujust rollback
+      - id: fix-steam
+        title: Fix Steam
+        description: Reinstall a broken Steam Flatpak (ujust fix-reset-steam).
+        options:
+          - id: run
+            label: Reset Steam
+            script: ujust fix-reset-steam
+      - id: cockpit
+        title: Cockpit web console
+        description: Enable or disable the Cockpit web console (https://localhost:9090).
+        status_script: systemctl is-enabled --quiet cockpit.service
+        options:
+          - id: enable
+            label: Enable
+            script: ujust cockpit enable
+          - id: disable
+            label: Disable
+            script: ujust cockpit disable
+
+  - id: tweaks
+    title: Tweaks
+    items:
+      - id: scx
+        title: sched-ext scheduler (scx_loader)
+        description: Enable or disable the sched-ext scheduler daemon (Bazzite default scx_lavd).
+        status_script: systemctl is-enabled --quiet scx_loader.service
+        options:
+          - id: enable
+            label: Enable
+            script: ujust toggle-scx enable
+          - id: disable
+            label: Disable
+            script: ujust toggle-scx disable
+      - id: bpftune
+        title: bpftune adaptive tuning
+        description: Enable or disable the bpftune-gaming adaptive kernel-tuning daemon.
+        status_script: systemctl is-enabled --quiet bpftune.service
+        options:
+          - id: enable
+            label: Enable
+            script: ujust toggle-bpftune enable
+          - id: disable
+            label: Disable
+            script: ujust toggle-bpftune disable
+      - id: doom
+        title: Set up Doom Emacs
+        description: One-time bootstrap of the Doom Emacs configuration (skips if already present).
+        options:
+          - id: run
+            label: Set up Doom
+            script: ujust doom-setup
+      - id: home-manager
+        title: Set up Nix Home Manager
+        description: One-time standalone Home Manager bootstrap (skips if already present).
+        options:
+          - id: run
+            label: Set up Home Manager
+            script: ujust home-manager-setup

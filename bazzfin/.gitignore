@@ -1,0 +1,16 @@
+cosign.key
+cosign.private
+/Containerfile
+*.build
+*.log
+/tmp/
+/dist/
+*.tar
+*.tar.gz
+*.oci
+.vscode/
+.idea/
+*.swp
+/.bluebuild-scripts_*
+__pycache__/
+*.pyc

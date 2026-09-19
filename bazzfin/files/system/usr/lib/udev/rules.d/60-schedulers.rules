@@ -1,0 +1,12 @@
+# Disk I/O scheduler selection, taken verbatim from Bazzite
+# (system_files/desktop/shared/usr/lib/udev/rules.d/60-schedulers.rules):
+# kyber for fast local flash (SSD/NVMe), bfq for rotational disks and
+# removable media (fairness while loading games).
+# SSD
+ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
+# NVME
+ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber"
+# MicroSD
+ACTION=="add|change", KERNEL=="mmcblk[0-9]p[0-9]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="bfq"
+# HDD
+ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"

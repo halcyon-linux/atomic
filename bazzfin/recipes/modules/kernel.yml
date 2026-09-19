@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  # ---------------------------------------------------------------------
+  # Swap in Universal Blue's "ogc" kernel (Open Gaming Collective --
+  # https://github.com/OpenGamingCollective/kernel-packages-fedora),
+  # the same gaming-oriented kernel Bazzite ships. The `akmods` module
+  # further down can't do this itself: per BlueBuild's docs, its
+  # `base:` field only selects which *pre-built kmod/driver set* to
+  # fetch for a kernel that's already running -- "custom kernels are
+  # not supported" by the module. The package swap has to be done by
+  # hand, the same way Bazzite's own build does it:
+  #   https://github.com/ublue-os/bazzite/blob/main/build_files/install-kernel-akmods
+  #
+  # `44` is the Fedora release base-main currently tracks (Fedora
+  # Linux 44, released 2026-04-28). Bump it whenever Universal Blue's
+  # base images move to a new Fedora release -- ghcr.io/ublue-os/akmods
+  # publishes a floating "ogc-<fedora_version>" tag per release,
+  # rebuilt daily: https://github.com/ublue-os/akmods#how-its-organized
+  # The renovate custom manager (.github/renovate.json5) tries to keep
+  # this current automatically; treat that as a nice-to-have, not a
+  # guarantee -- double check it after any base-image Fedora bump.
+  #
+  # `copy`'s `from:` takes a plain image reference (no `stages:` block
+  # needed), so this becomes a straight
+  #   COPY --from=ghcr.io/ublue-os/akmods:ogc-44 /kernel-rpms /tmp/ogc-kernel-rpms
+  # https://blue-build.org/reference/modules/copy/
+  # ---------------------------------------------------------------------
+  - type: copy
+    from: ghcr.io/ublue-os/akmods:ogc-44
+    src: /kernel-rpms
+    dest: /tmp/ogc-kernel-rpms
+
+  - type: script
+    scripts:
+      - install-ogc-kernel.sh

@@ -1,0 +1,90 @@
+name: build
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+  merge_group:
+  schedule:
+    - cron: "10 6 * * *" # daily, shortly after the ublue base images build
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: bazzite-fork
+  FEDORA_VERSION: "44"
+  BASE_IMAGE_NAME: base
+  AKMODS_FLAVOR: main
+  NVIDIA_FLAVOR: nvidia-open
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Pull base images
+        run: |
+          podman pull ghcr.io/ublue-os/${BASE_IMAGE_NAME}-main:${FEDORA_VERSION}
+          podman pull ghcr.io/ublue-os/akmods-${NVIDIA_FLAVOR}:${AKMODS_FLAVOR}-${FEDORA_VERSION}-x86_64
+          podman pull ghcr.io/ublue-os/brew:latest
+
+      - name: Build image
+        id: build
+        run: |
+          set -euo pipefail
+          docker_tag="${IMAGE_REGISTRY}/${IMAGE_NAME}:${FEDORA_VERSION}"
+          podman build \
+            --build-arg IMAGE_VENDOR="${{ github.repository_owner }}" \
+            --build-arg FEDORA_VERSION="${FEDORA_VERSION}" \
+            --build-arg BASE_IMAGE_NAME="${BASE_IMAGE_NAME}" \
+            --build-arg KERNEL_FLAVOR="${AKMODS_FLAVOR}" \
+            --build-arg NVIDIA_FLAVOR="${NVIDIA_FLAVOR}" \
+            --build-arg SHA_HEAD_SHORT="${GITHUB_SHA::7}" \
+            --build-arg VERSION_TAG="${{ steps.date.outputs.date }}" \
+            --build-arg VERSION_PRETTY="${{ steps.date.outputs.date }}" \
+            --tag "${docker_tag}" \
+            --tag "${docker_tag}-${{ steps.date.outputs.date }}" \
+            --tag "${docker_tag}-${{ github.sha }}" \
+            .
+          echo "image=${docker_tag}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+      - name: Push to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          podman login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          podman push "${{ steps.build.outputs.image }}"
+          podman push "${{ steps.build.outputs.image }}-${{ steps.date.outputs.date }}"
+
+      - name: Install cosign
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with a key
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+        run: |
+          if [[ -z "${COSIGN_PRIVATE_KEY}" ]]; then
+            echo "SIGNING_SECRET not set; skipping image signing."
+            exit 0
+          fi
+          echo "${COSIGN_PRIVATE_KEY}" > /tmp/cosign.private.key
+          cosign sign --key /tmp/cosign.private.key --yes \
+            "${{ steps.build.outputs.image }}" \
+            "${{ steps.build.outputs.image }}-${{ steps.date.outputs.date }}"
+          rm -f /tmp/cosign.private.key

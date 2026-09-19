@@ -1,0 +1,14 @@
+[Unit]
+Description=Install and verify configured Homebrew packages for user
+Wants=network-online.target
+After=network-online.target default.target
+ConditionPathExists=/home/linuxbrew/.linuxbrew/bin/brew
+ConditionPathExists=!%h/.cache/brew-packages-setup-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/hyprland-image/brew-package-setup
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

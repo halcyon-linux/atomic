@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+#
+# brew-package-setup - automated zero-intervention Homebrew package installer
+#
+# Runs as brew-packages-setup.service, a user unit pulled in by
+# default.target. Ensures Homebrew is initialized and installs every
+# package listed in /etc/hyprland-image/brew-packages.
+#
+# Idempotent and self-healing, like set-default-shell: it only installs
+# packages that aren't already present. Also like set-default-shell,
+# the actual scan (one `brew list --formula` call per package) is
+# skipped unless the booted deployment (bootc/rpm-ostree image digest/
+# checksum) differs from the one recorded the last time *this user*
+# ran it -- i.e. real work only happens again after `ujust rebase`/
+# `ujust update` lands a new deployment, since /etc/hyprland-image/
+# brew-packages is an /etc file baked into the image and so only
+# actually changes on a rebase, not on every single login in between.
+#
+# The state marker lives under this user's own XDG state dir rather
+# than a system location: this unit runs unprivileged, in the user's
+# own systemd --user instance, so it can't write to root-owned paths
+# like /var/lib, and deliberately never shells out to sudo either --
+# that would mean a password prompt, which breaks the "zero-
+# intervention" goal above. Each user that logs in still tracks its
+# own "checked this deployment" state independently, but since
+# Homebrew itself is one shared installation, whichever user logs in
+# first each rebase does the real work and every other user's check
+# that same deployment is a fast no-op.
+#
+# If the deployment can't be determined (bootc/rpm-ostree/jq missing,
+# erroring, or unreadable without root), this fails safe and always
+# re-scans rather than silently skipping forever.
+#
+# Trade-off: if a package disappears from the shared Homebrew prefix
+# by some means other than the image's package list changing (e.g. a
+# user manually running `brew uninstall`), it won't be reinstalled
+# until the next rebase produces a new deployment, since no scan runs
+# on the logins in between. If that self-healing matters more than
+# skipping the redundant per-login scan, delete the deployment-guard
+# block below and let the loop run on every login again -- it's cheap
+# either way, just no longer free.
+#
+set -euo pipefail
+
+BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+PACKAGE_LIST="/etc/hyprland-image/brew-packages"
+
+STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/hyprland-image"
+STATE_FILE="${STATE_DIR}/brew-check-deployment"
+
+# Print an identifier for the currently booted image (digest/checksum),
+# or nothing if it can't be determined. Deliberately never uses sudo --
+# this unit runs unprivileged and must not prompt for a password.
+current_deployment() {
+  if command -v bootc >/dev/null 2>&1; then
+    bootc status --json 2>/dev/null | jq -r '.status.booted.image.imageDigest // empty' 2>/dev/null
+  elif command -v rpm-ostree >/dev/null 2>&1; then
+    rpm-ostree status --json 2>/dev/null | jq -r '[.deployments[] | select(.booted == true)][0].checksum // empty' 2>/dev/null
+  fi
+}
+
+# Record that this user's Homebrew packages have been verified/fixed
+# for the given deployment, so the next login on the same deployment
+# can skip straight past the guard below instead of rescanning.
+record_checked() {
+  [[ -n "${CURRENT_DEPLOYMENT}" ]] || return 0
+  mkdir -p "${STATE_DIR}" 2>/dev/null || true
+  echo "${CURRENT_DEPLOYMENT}" >"${STATE_FILE}" 2>/dev/null || true
+}
+
+CURRENT_DEPLOYMENT="$(current_deployment || true)"
+
+if [[ -n "${CURRENT_DEPLOYMENT}" ]] && [[ -f "${STATE_FILE}" ]] &&
+  [[ "$(cat "${STATE_FILE}" 2>/dev/null || true)" == "${CURRENT_DEPLOYMENT}" ]]; then
+  echo "Already checked Homebrew packages for this deployment (${CURRENT_DEPLOYMENT:0:12}...); skipping."
+  exit 0
+fi
+
+if [[ ! -x "${BREW_BIN}" ]]; then
+  echo "Homebrew binary not found at ${BREW_BIN}; waiting for brew-setup.service." >&2
+  exit 1
+fi
+
+if [[ ! -f "${PACKAGE_LIST}" ]]; then
+  echo "No package list found at ${PACKAGE_LIST}; nothing to install." >&2
+  record_checked
+  exit 0
+fi
+
+# Load Homebrew environment
+eval "$("${BREW_BIN}" shellenv)"
+
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_ENV_HINTS=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+
+# Determine packages that are not yet installed
+MISSING_PACKAGES=()
+while read -r pkg || [[ -n "${pkg}" ]]; do
+  pkg="${pkg%$'\r'}" # tolerate CRLF line endings
+
+  # Skip comments and blank lines
+  [[ -z "${pkg}" || "${pkg}" =~ ^# ]] && continue
+
+  if ! "${BREW_BIN}" list --formula "${pkg}" &>/dev/null; then
+    MISSING_PACKAGES+=("${pkg}")
+  fi
+done <"${PACKAGE_LIST}"
+
+if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
+  echo "Installing missing Homebrew packages: ${MISSING_PACKAGES[*]}"
+  if ! "${BREW_BIN}" install "${MISSING_PACKAGES[@]}"; then
+    echo "WARNING: One or more Homebrew packages failed to install. Will retry on next login." >&2
+    exit 1
+  fi
+else
+  echo "All Homebrew packages are already installed."
+fi
+
+echo "Homebrew package setup completed successfully."
+record_checked

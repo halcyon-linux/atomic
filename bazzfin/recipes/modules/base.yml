@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  - type: signing
+
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # ---------------------------------------------------------------------
+  # /opt symlink fix (Brave's RPM installs into /opt, which doesn't exist
+  # as a real directory yet on a fresh ostree tree), package removal
+  # inherited unconditionally from the base image, and a sanity check that
+  # the base image still ships /usr/share/ublue-os/justfile (installed by
+  # the `ublue-os-just` package). We stopped shipping our own override of
+  # that file (see the `justfiles` module near the bottom) so that the
+  # default recipes Bazzite, Bluefin and Aurora all inherit from the same
+  # package -- bios, clean-system, distrobox-assemble, configure-broadcom-wl,
+  # etc. -- stay reachable under `ujust` here too. If a future base image
+  # ever drops that package, this fails the build loudly instead of
+  # silently losing `ujust`.
+  # ---------------------------------------------------------------------
+  - type: script
+    snippets:
+      - mkdir -p /usr/lib/opt
+      - '[ -L /opt ] && [ "$(readlink /opt)" = "var/opt" ] && rm -f /opt && ln -s usr/lib/opt /opt || true'
+      - 'test -f /usr/share/ublue-os/justfile || { echo "ERROR: /usr/share/ublue-os/justfile missing -- is ublue-os-just still provided by the base image?" >&2; exit 1; }'
+    scripts:
+      - global-remove.sh

@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""bazzfin-portal — GTK3 configuration tool for the bazzfin image.
+
+A GTK3/PyGObject counterpart to Bazzite's Portal (yafti-gtk + yafti.yml):
+the UI is generated from a declarative YAML config
+(/usr/share/bazzfin-portal/portal.yml, same schema idea — categories, cards,
+status scripts, command options) so new actions need no code changes.
+
+Commands run detached inside a kitty window (default) so their output and any
+sudo prompt are visible; items may opt out with `terminal: false` for
+fire-and-forget GUI commands (xdg-open, bazaar, ...).
+"""
+
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+
+import gi
+
+# Pin BOTH namespaces: with gtk4 also installed, an unpinned Gdk import would
+# resolve to Gdk 4.0 and then conflict with Gtk 3.0 (Gdk must be required
+# before Gtk is imported, hence the explicit Gdk pin too).
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+CONFIG_PATHS = (
+    os.environ.get("BAZZFIN_PORTAL_CONFIG",
+                   "/usr/share/bazzfin-portal/portal.yml"),
+)
+
+CSS = b"""
+.card { border-radius: 10px; padding: 12px; }
+.card-title { font-weight: bold; font-size: 110%; }
+.card-desc { color: alpha(@theme_fg_color, 0.85); }
+.status-chip { border-radius: 10px; padding: 2px 10px; }
+.status-on  { color: #26a269; }
+.status-off { color: #a51d2d; }
+.status-unknown { color: alpha(@theme_fg_color, 0.6); }
+"""
+
+
+def load_config():
+    import yaml
+    for path in CONFIG_PATHS:
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as fh:
+                cfg = yaml.safe_load(fh) or {}
+            cats = cfg.get("categories") or []
+            if not cats:
+                raise ValueError(f"no categories found in {path}")
+            return path, cats
+    raise SystemExit(f"bazzfin-portal: config not found ({', '.join(CONFIG_PATHS)})")
+
+
+def find_terminal():
+    for term in ("kitty", "foot", "wezterm", "alacritty", "xterm"):
+        exe = shutil.which(term)
+        if exe:
+            return exe
+    return None
+
+
+class StatusChecker:
+    """Runs a card's read-only status_script off-thread and updates a Gtk.Label."""
+
+    def __init__(self, label: Gtk.Label, script: str):
+        self.label = label
+        self.script = script
+        self.token = 0
+
+    def refresh(self):
+        self.token += 1
+        token, script = self.token, self.script
+        threading.Thread(target=self._run, args=(token, script), daemon=True).start()
+
+    def _run(self, token, script):
+        try:
+            proc = subprocess.run(
+                ["bash", "-lc", script], timeout=20,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            code = proc.returncode
+        except Exception:
+            code = None
+        GLib.idle_add(self._apply, token, code)
+
+    def _apply(self, token, code):
+        if token != self.token:  # a newer refresh superseded this one
+            return False
+        if code == 0:
+            self.label.set_text("installed / active")
+            self.label.get_style_context().add_class("status-on")
+        elif code is None:
+            self.label.set_text("status unknown")
+            self.label.get_style_context().add_class("status-unknown")
+        else:
+            self.label.set_text("not installed / inactive")
+            self.label.get_style_context().add_class("status-off")
+        return False
+
+
+class Card(Gtk.Frame):
+    """One item from the YAML config: title, description, status chip, buttons."""
+
+    def __init__(self, item):
+        super().__init__()
+        self.get_style_context().add_class("card")
+        item_id = item.get("id", "item")
+        self.set_name(f"card-{item_id}")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                      margin_top=2, margin_bottom=2, margin_start=2, margin_end=2)
+        self.add(box)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.pack_start(head, False, False, 0)
+
+        title = Gtk.Label(xalign=0.0)
+        escaped = GLib.markup_escape_text(item.get("title", item_id))
+        title.set_markup(f"<b>{escaped}</b>")
+        title.get_style_context().add_class("card-title")
+        title.set_hexpand(True)
+        head.pack_start(title, True, True, 0)
+
+        self.status_label = Gtk.Label(xalign=1.0)
+        self.status_label.get_style_context().add_class("status-chip")
+        head.pack_end(self.status_label, False, False, 0)
+
+        desc = item.get("description")
+        if desc:
+            dlabel = Gtk.Label(xalign=0.0)
+            dlabel.set_text(desc)
+            dlabel.set_line_wrap(True)
+            dlabel.get_style_context().add_class("card-desc")
+            box.pack_start(dlabel, False, False, 0)
+
+        btnrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.pack_start(btnrow, False, False, 0)
+
+        self.checker = None
+        if item.get("status_script"):
+            self.checker = StatusChecker(self.status_label, item["status_script"])
+            refresh_btn = Gtk.Button(label="refresh")
+            refresh_btn.connect("clicked", lambda _b: self.checker.refresh())
+            btnrow.pack_end(refresh_btn, False, False, 0)
+        else:
+            self.status_label.set_text("")
+
+        use_terminal = item.get("terminal", True)
+        for opt in item.get("options", []) or []:
+            btn = Gtk.Button(label=opt.get("label", opt.get("id", "run")))
+            btn.connect("clicked", self._on_click, opt.get("script", ""), use_terminal)
+            btnrow.pack_start(btn, False, False, 0)
+
+    @staticmethod
+    def _terminal_command(script):
+        term = find_terminal()
+        if not term:
+            print("bazzfin-portal: no terminal emulator found for terminal "
+                  "actions; install kitty (or set terminal: false on the item)",
+                  file=sys.stderr)
+            return None
+        return [term, "-e", "bash", "-lc", script]
+
+    def _on_click(self, _btn, script, use_terminal):
+        if not script:
+            return
+        try:
+            if use_terminal:
+                cmd = self._terminal_command(script)
+                if cmd is None:
+                    return
+            else:
+                cmd = shlex.split(script)
+            subprocess.Popen(cmd, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, ValueError) as exc:
+            dialog = Gtk.MessageDialog(transient_for=self.get_toplevel(),
+                                       modal=True, message_type=Gtk.MessageType.ERROR,
+                                       buttons=Gtk.ButtonsType.CLOSE, text=str(exc))
+            dialog.run()
+            dialog.destroy()
+
+
+class PortalWindow(Gtk.Window):
+    def __init__(self, config_path, categories):
+        super().__init__(title="bazzfin portal")
+        self.set_default_size(940, 660)
+        self.connect("destroy", Gtk.main_quit)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                       margin_top=10, margin_bottom=10, margin_start=10, margin_end=10)
+        self.add(root)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        root.pack_start(head, False, False, 0)
+        head_title = Gtk.Label(xalign=0.0)
+        head_title.set_markup("<b>bazzfin portal</b> — <small>manage updates, "
+                              "software and system toggles</small>")
+        head.pack_start(head_title, True, True, 0)
+        refresh_all = Gtk.Button(label="Refresh statuses")
+        refresh_all.connect("clicked", self._refresh_all)
+        head.pack_end(refresh_all, False, False, 0)
+
+        stack = Gtk.Stack()
+        stack.set_hexpand(True)
+        stack.set_vexpand(True)
+        sidebar = Gtk.StackSidebar()
+        sidebar.set_stack(stack)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        body.pack_start(sidebar, False, False, 0)
+        body.pack_start(stack, True, True, 0)
+        root.pack_start(body, True, True, 0)
+
+        self.checkers = []
+        first = True
+        for category in categories:
+            cat_id = category.get("id", "category")
+            title = category.get("title", cat_id)
+            scrolled = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN)
+            scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            listbox = Gtk.ListBox()
+            listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+            for item in category.get("items", []) or []:
+                card = Card(item)
+                listbox.add(card)
+                if card.checker:
+                    self.checkers.append(card.checker)
+            scrolled.add(listbox)
+            stack.add_titled(scrolled, cat_id, title)
+            if first:
+                stack.set_visible_child_name(cat_id)
+                first = False
+
+        stack.connect("notify::visible-child", self._on_page_switch)
+        self.show_all()
+        self._refresh_all()
+
+    def _refresh_all(self, *_args):
+        for checker in self.checkers:
+            checker.refresh()
+
+    def _on_page_switch(self, *_args):
+        self._refresh_all()
+
+
+def main():
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        print("bazzfin-portal: no display detected (run it from a graphical session)",
+              file=sys.stderr)
+        return 1
+    config_path, categories = load_config()
+
+    screen = Gdk.Screen.get_default()
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    PortalWindow(config_path, categories)
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

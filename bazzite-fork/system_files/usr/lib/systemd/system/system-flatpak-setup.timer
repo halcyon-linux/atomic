@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer for system-flatpak-setup
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+#
+# set-default-shell - ensure zsh is the login shell for root and real
+# local (human) users.
+#
+# Runs as a root systemd service ordered before any login is
+# permitted (see set-default-shell.service). chsh isn't reliable on
+# atomic images (some ublue-derived bases strip it entirely, and it
+# needs an interactive PAM password prompt anyway), so this uses
+# usermod directly instead -- the approach the Universal Blue
+# community recommends for exactly this situation:
+# https://universal-blue.discourse.group/t/how-to-change-the-default-shell/3901
+#
+# Idempotent and self-healing: only touches accounts that aren't
+# already on zsh. The actual scan is skipped unless the booted
+# deployment (bootc/rpm-ostree image digest/checksum) differs from the
+# one recorded the last time this ran -- i.e. real work only happens
+# again after `ujust rebase`/`ujust update` lands a new deployment, not
+# on every ordinary reboot. Because this service still runs (and
+# finishes) before systemd-user-sessions.service, any fix it makes is
+# already in place before the first login of that boot -- so in effect
+# the shell is corrected exactly once per rebase, and always before
+# anyone can log in with it, without needing an actual login-time hook
+# (which would need extra privilege-escalation plumbing, since usermod
+# needs root and a login session doesn't have it).
+#
+# If the deployment can't be determined (bootc/rpm-ostree/jq missing
+# or erroring), this fails safe and always re-scans rather than
+# silently skipping forever.
+#
+# Trade-off: an account created by hand (e.g. `useradd`) between two
+# rebases won't be caught until the next rebase produces a new
+# deployment, since no scan runs on the reboots in between. If that
+# matters more than skipping the redundant per-boot scan, delete the
+# deployment-guard block below and let the loop run unconditionally on
+# every boot again -- it's cheap either way.
+#
+set -uo pipefail # deliberately NOT -e: one account's failure must
+# not stop the others (see the loop below).
+
+STATE_DIR="/var/lib/hyprland-image"
+STATE_FILE="${STATE_DIR}/shell-check-deployment"
+
+# Print an identifier for the currently booted image (digest/checksum),
+# or nothing if it can't be determined.
+current_deployment() {
+  if command -v bootc >/dev/null 2>&1; then
+    bootc status --json 2>/dev/null | jq -r '.status.booted.image.imageDigest // empty' 2>/dev/null
+  elif command -v rpm-ostree >/dev/null 2>&1; then
+    rpm-ostree status --json 2>/dev/null | jq -r '[.deployments[] | select(.booted == true)][0].checksum // empty' 2>/dev/null
+  fi
+}
+
+CURRENT_DEPLOYMENT="$(current_deployment || true)"
+
+if [[ -n "${CURRENT_DEPLOYMENT}" ]]; then
+  mkdir -p "${STATE_DIR}" 2>/dev/null || true
+  if [[ -f "${STATE_FILE}" ]] && [[ "$(cat "${STATE_FILE}" 2>/dev/null || true)" == "${CURRENT_DEPLOYMENT}" ]]; then
+    echo "Already checked default shells for this deployment (${CURRENT_DEPLOYMENT:0:12}...); skipping."
+    exit 0
+  fi
+fi
+
+ZSH_BIN="$(command -v zsh || true)"
+if [[ -z "${ZSH_BIN}" ]]; then
+  echo "zsh not found on PATH; skipping default-shell setup." >&2
+  exit 0
+fi
+
+# Sanity-check that zsh can actually start before pointing any
+# account's login shell at it. A binary that exists but is broken
+# (bad linking, corrupt install, etc.) must never be applied -- that
+# would lock the affected account out of an interactive shell, which
+# is especially dangerous for root. -f skips rc files so this tests
+# the binary itself, not anyone's dotfiles.
+if ! "${ZSH_BIN}" -f -c 'exit 0' >/dev/null 2>&1; then
+  echo "ERROR: ${ZSH_BIN} failed a basic sanity check; leaving all login shells untouched." >&2
+  exit 1
+fi
+
+# Register zsh as a valid login shell -- some login stacks/PAM configs
+# consult /etc/shells before permitting a shell to be used to log in.
+if ! grep -qxF "${ZSH_BIN}" /etc/shells 2>/dev/null; then
+  echo "${ZSH_BIN}" >>/etc/shells
+fi
+
+ZSH_RESOLVED="$(readlink -f "${ZSH_BIN}" 2>/dev/null || echo "${ZSH_BIN}")"
+CHANGED=0
+FAILED=0
+
+# UID 0 (root) plus 1000-60000 (the standard "real, interactive user"
+# range from /etc/login.defs UID_MIN/UID_MAX). Still excludes
+# system/service accounts (bin, sshd, nobody, ...). root is included
+# deliberately: even with the root account itself locked/disabled and
+# only reachable via `sudo -i`, `sudo -i` execs the shell configured
+# for root in /etc/passwd as a login shell -- so that field still has
+# to be zsh (not e.g. /sbin/nologin) for `sudo -i` to land in an
+# interactive shell instead of being refused outright.
+while IFS=: read -r user _ uid gid _ home shell; do
+  if [[ "${uid}" -ne 0 ]] && { [[ "${uid}" -lt 1000 ]] || [[ "${uid}" -gt 60000 ]]; }; then
+    continue
+  fi
+
+  # Neither root's home nor a brand-new account's home is guaranteed
+  # to have a .zshrc yet (root is never seeded from /etc/skel; a fresh
+  # install's chezmoi-init.service hasn't necessarily run before this
+  # boots). Without one, the account's first interactive zsh session
+  # hits the "zsh-newuser-install" wizard instead of a normal prompt.
+  # An empty file is enough to suppress it, and this never overwrites
+  # a real .zshrc that already exists (e.g. one chezmoi later applies).
+  #
+  # Use the account's real primary GID (not the UID) -- they only
+  # coincide because Fedora's user-private-group scheme makes them
+  # line up by convention, not by guarantee (e.g. an account added to
+  # a shared group instead of its own would get a dangling, nonexistent
+  # GID on the file otherwise).
+  if [[ -d "${home}" && ! -e "${home}/.zshrc" ]]; then
+    install -m 0644 -o "${uid}" -g "${gid}" /dev/null "${home}/.zshrc"
+  fi
+
+  shell_resolved="$(readlink -f "${shell}" 2>/dev/null || echo "${shell}")"
+  if [[ "${shell_resolved}" == "${ZSH_RESOLVED}" ]]; then
+    continue
+  fi
+
+  echo "Setting default shell for ${user} to ${ZSH_BIN}"
+  if usermod --shell "${ZSH_BIN}" "${user}"; then
+    CHANGED=1
+  else
+    echo "WARNING: failed to set default shell for ${user}" >&2
+    FAILED=1
+  fi
+done </etc/passwd
+
+if [[ "${CHANGED}" -eq 0 && "${FAILED}" -eq 0 ]]; then
+  echo "root and all real local users already default to zsh."
+fi
+
+# Only mark this deployment as "done" if nothing failed -- a partial
+# failure should be retried on the next boot, not silently accepted.
+if [[ -n "${CURRENT_DEPLOYMENT}" && "${FAILED}" -eq 0 ]]; then
+  echo "${CURRENT_DEPLOYMENT}" >"${STATE_FILE}"
+fi
+
+exit "${FAILED}"

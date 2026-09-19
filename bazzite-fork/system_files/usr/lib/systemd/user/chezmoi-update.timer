@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily timer to keep chezmoi dotfiles updated
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

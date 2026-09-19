@@ -1,0 +1,277 @@
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+name: bazzite-hyprland
+description: Custom Universal Blue / Bazzite image with Hyprland, Noctalia Greeter, and baked developer tools.
+base-image: ghcr.io/ublue-os/bazzite-gnome-nvidia-open
+image-version: latest
+
+modules:
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  - type: dnf
+    remove:
+      packages:
+        - bluez-cups
+        - cage
+        - "cardwire*"
+        - epiphany-runtime
+        - erlang-srpm-macros
+        - evolution-data-server
+        - evolution-data-server-langpacks
+        - evolution-ews-core
+        - evolution-ews-langpacks
+        - fish
+        - gdm
+        - gnome-bluetooth
+        - gnome-bluetooth-libs
+        - gnome-control-center
+        - gnome-control-center-filesystem
+        - gnome-online-accounts
+        - gnome-online-accounts-libs
+        - gnome-remote-desktop
+        - gnome-rounded-blur
+        - gnome-search-yafti
+        - gnome-session
+        - gnome-session-wayland-session
+        - gnome-settings-daemon
+        - gnome-shell
+        - gnome-shell-common
+        - gnome-shell-extension-common
+        - gnome-shell-extension-gsconnect
+        - gnome-shell-extension-user-theme
+        - gnome-srpm-macros
+        - gnome-user-docs
+        - gnome-user-share
+        - go-srpm-macros
+        - google-noto-sans-balinese-fonts
+        - google-noto-sans-cjk-fonts
+        - google-noto-sans-javanese-fonts
+        - google-noto-sans-sundanese-fonts
+        - gstreamer1-plugins-good-qt
+        - gstreamer1-plugins-good-qt6
+        - jupiter-sd-mounting-btrfs
+        - hunspell-en-AU
+        - mutter
+        - mutter-common
+        - nano
+        - nano-default-editor
+        - nautilus
+        - nautilus-extensions
+        - nautilus-gsconnect
+        - nautilus-python
+        - NetworkManager-ssh-gnome
+        - openrazer
+        - papers-libs
+        - papers-nautilus
+        - papers-previewer
+        - papers-thumbnailer
+        # pipewire-jack* pkgs cannot be removed
+        # - pipewire-jack-audio-connection-kit
+        # - pipewire-jack-audio-connection-kit-libs
+        - ptyxis
+        - twitter-twemoji-fonts
+        - rom-properties
+        - rom-properties-common
+        - rom-properties-gtk4
+        - rom-properties-localsearch3
+        - rom-properties-utils
+        - "steamdeck*"
+        - tree-sitter-srpm-macros
+        - twitter-twemoji-fonts
+        - "vim*"
+        - "xdg-desktop-portal-gnome*"
+        - yad
+        - ydotool
+        - yelp
+        - yelp-libs
+        - zenergy
+        - zenergy-akmod-modules
+        - zinnia
+        - zinnia-tomoe-ja
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - accountsservice
+        - bleachbit
+        - bluez-tools
+        - brightnessctl
+        - cargo
+        - cmake
+        - cronie
+        - curl
+        - ddcutil
+        - direnv
+        - distrobox
+        - emacs-pgtk
+        - fail2ban
+        - file-roller
+        - fontconfig
+        - fonts-filesystem
+        - gcc-c++
+        - git
+        - gnome-keyring
+        - gnome-tweaks
+        - go
+        - grim
+        - gsettings-desktop-schemas
+        - gtk4-layer-shell
+        - gzip
+        - ImageMagick
+        - imv
+        - inotify-tools
+        - jq
+        - kitty
+        - kitty-shell-integration
+        - kitty-terminfo
+        - libinput-utils
+        - logrotate
+        - ly
+        - lynis
+        - man-db
+        - mpv
+        - neovim
+        - ninja-build
+        - nodejs
+        - npm
+        - papers
+        - papirus-icon-theme
+        - pipx
+        - pkgconf-pkg-config
+        - policycoreutils-python-utils
+        - pymol
+        - qt5ct
+        - slurp
+        - sqlite
+        - swappy
+        - transmission-gtk
+        - tree-sitter-cli
+        - udiskie
+        - xdg-desktop-portal
+        - xdg-user-dirs
+        - xdg-user-dirs-gtk
+        - xhost
+        - xorg-x11-server-Xorg
+        - xorg-x11-server-Xwayland
+        - xorg-x11-xauth
+        - zathura
+        - zathura-pdf-poppler
+        - zathura-plugins-all
+        - zsh
+
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - lionheartp/Hyprland
+        - sneexy/zen-browser
+      files:
+        - https://github.com/terrapkg/subatomic-repos/raw/main/terra.repo
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - cliphist
+        - hyprland-git
+        - noctalia-git
+        - nwg-look
+        - qt6ct
+        - xdg-desktop-portal-hyprland
+        - zed
+        - zen-browser
+    # Commented section for DNF package groups.
+    # install-weak-deps: false guarantees --setopt=install_weak_deps=False is passed.
+    # group-install:
+    #   with-optional: false
+    #   install-weak-deps: false
+    #   packages:
+    #     - "Development Tools"
+
+  - type: default-flatpaks
+    configurations:
+      - notify: true # Send notification after install/uninstall is finished (true/false)
+        scope: system
+        remove: # system flatpaks we want all users to have and not remove
+          - com.github.Matoking.protontricks
+          - com.github.tchx84.Flatseal
+          - com.mattjakeman.ExtensionManager
+          - com.obsproject.Studio.Plugin.GStreamerVaapi
+          - com.obsproject.Studio.Plugin.Gstreamer
+          - com.obsproject.Studio.Plugin.OBSVkCapture
+          - com.ranfdev.DistroShelf
+          - com.vysp3r.ProtonPlus
+          - io.github.flattool.Warehouse
+          - io.missioncenter.MissionCenter
+          - org.freedesktop.Platform
+          - org.freedesktop.Platform.Compat.i386
+          - org.freedesktop.Platform.GL.default
+          - org.freedesktop.Platform.GL32.default
+          - org.freedesktop.Platform.VulkanLayer.MangoHud
+          - org.freedesktop.Platform.VulkanLayer.OBSVkCapture
+          - org.freedesktop.Platform.VulkanLayer.vkBasalt
+          - org.freedesktop.Platform.codecs-extra
+          - org.gnome.Calculator
+          - org.gnome.Calendar
+          - org.gnome.Characters
+          - org.gnome.Contacts
+          - org.gnome.Firmware
+          - org.gnome.Logs
+          - org.gnome.NautilusPreviewer
+          - org.gnome.Papers
+          - org.gnome.Platform
+          - org.gnome.Showtime
+          - org.gnome.TextEditor
+          - org.gnome.Weather
+          - org.gnome.baobab
+          - org.gnome.clocks
+          - org.gnome.font-viewer
+          - page.tesk.Refine
+      - scope: user
+
+  # - type: brew
+  #   brew-analytics: false
+  #   auto-upgrade: false
+
+  - type: fonts
+    fonts:
+      nerd-fonts:
+        - JetBrainsMono
+        - NerdFontsSymbolsOnly
+      google-fonts:
+        - JetBrains Mono
+        - Noto Emoji
+        - Noto Color Emoji
+
+  - type: script
+    scripts:
+      - setup-nix-base.sh
+      # - clean-upstream-flatpaks.sh
+      - clean-gnome-extensions.sh
+      - install-vscode.sh
+      - install-brave.sh
+      - install-zotero.sh
+      - install-obsidian.sh
+      - install-pyprland.sh
+      - install-texlive.sh
+
+  - type: chezmoi
+    repository: "https://github.com/aahsnr-configs/dots"
+    file-conflict-policy: replace
+    all-users: true
+
+  - type: systemd
+    system:
+      enabled:
+        # - ly@tty1.service
+        - accounts-daemon.service
+        - determinate-nix-init.service
+      # masked:
+      #   - getty@tty1.service
+    user:
+      enabled:
+        - chezmoi-init.service
+        - chezmoi-update.timer
+        - home-manager-init.service
+        - pyprland.service

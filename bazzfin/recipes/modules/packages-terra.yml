@@ -1,0 +1,44 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  # ---------------------------------------------------------------------
+  # Terra packages, installed WITHOUT repo scoping.
+  #
+  # BlueBuild turns `repo: <id>` package entries into
+  # `dnf install --repoid <id>`, which confines the WHOLE transaction --
+  # dependency resolution included -- to that single repo. terra-gamescope
+  # pulls SDL2/X11 libs that only exist in Fedora, so a terra-extras-scoped
+  # install fails with "nothing provides libSDL2-2.0.so.0 ... from
+  # terra-extras" (and then trips over terra-extras' i686 multilib builds).
+  #
+  # By this point terra-release-extras (module above) has enabled the
+  # terra-extras repo with priority=150, so Fedora wins for any shared
+  # dependency. The terra repo file is re-added here because `cleanup: true`
+  # removed it at the end of the module above (cleanup only removes repos
+  # added by a module; the package-installed terra-extras.repo persists).
+  # ---------------------------------------------------------------------
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://raw.githubusercontent.com/terrapkg/subatomic-repos/main/terra.repo
+    install:
+      install-weak-deps: false
+      # terra-extras deliberately ships packages that conflict with Fedora
+      # (its own zlib, patched WINE, ...). priority=150 already makes Fedora
+      # win shared deps; this is a belt-and-braces guard (same fix zirconium
+      # ships) so the solver can never pull terra's zlib over Fedora's.
+      exclude:
+        - zlib
+      packages:
+        - terra-gamescope
+        - terra-gamescope-libs
+        - zed
+        - umu-launcher
+        - umu-wrapper
+        - 8bitdo-udev-rules
+        # bpftune-gaming (adaptive kernel tuning) is built by Terra and
+        # lives in the terra repo -- NOT in any ublue COPR (Bazzite relies
+        # on the same fact via its `*terra*.priority=1` setup).
+        - bpftune-gaming

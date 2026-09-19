@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# flatpak-setup - user-scope Flatpak installer and system Flatpak cleaner
+#
+set -euo pipefail
+
+SYSTEM_REMOVE_LIST="/etc/hyprland-image/system-flatpaks-remove"
+USER_INSTALL_LIST="/etc/hyprland-image/user-flatpaks"
+
+# Ensure Flathub is added for the user
+flatpak remote-add --user --if-not-exists flathub \
+  https://dl.flathub.org/repo/flathub.flatpakrepo || true
+
+# Remove unwanted system flatpaks if any persist on deployment
+if [[ -f "${SYSTEM_REMOVE_LIST}" ]]; then
+  while read -r pkg; do
+    [[ -z "${pkg}" || "${pkg}" =~ ^# ]] && continue
+    if flatpak --system info "${pkg}" >/dev/null 2>&1; then
+      echo "Removing system Flatpak: ${pkg}"
+      flatpak --system uninstall --noninteractive --assumeyes "${pkg}" || true
+    fi
+  done < "${SYSTEM_REMOVE_LIST}"
+fi
+
+# Install user flatpaks from the user-flatpaks manifest
+if [[ -f "${USER_INSTALL_LIST}" ]]; then
+  while read -r pkg; do
+    [[ -z "${pkg}" || "${pkg}" =~ ^# ]] && continue
+    if flatpak --user info "${pkg}" >/dev/null 2>&1; then
+      echo "OK (user): ${pkg}"
+    else
+      echo "Installing user Flatpak: ${pkg}"
+      flatpak --user install --noninteractive --assumeyes flathub "${pkg}" || {
+        echo "WARNING: Failed to install user Flatpak ${pkg}" >&2
+      }
+    fi
+  done < "${USER_INSTALL_LIST}"
+fi
+
+echo "Flatpak setup completed."

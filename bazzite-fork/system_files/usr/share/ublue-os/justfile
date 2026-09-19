@@ -1,0 +1,6 @@
+# vim: set ft=make :
+
+import "/usr/share/ublue-os/just/10-update.just"
+import "/usr/share/ublue-os/just/20-rebase.just"
+import "/usr/share/ublue-os/just/30-doom.just"
+import "/usr/share/ublue-os/just/40-flatpaks.just"

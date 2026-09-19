@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# hyprland-flatpak-manager - inspect and manually trigger the default-flatpaks
+# setup baked into this image.
+#
+set -euo pipefail
+
+CONFIG_FILE="/etc/hyprland-image/default-flatpaks.json"
+
+usage() {
+  cat <<'EOF'
+A CLI tool to inspect and manage the Flatpaks configured by this image.
+
+Usage: hyprland-flatpak-manager <command> [args]
+
+Commands:
+    show                        Print the configured Flatpak setup
+    apply <all|user|system>     Manually run the Flatpak setup now
+    enable <all|user|system>    Enable the automatic (timer-based) setup
+    disable <all|user|system>   Disable the automatic (timer-based) setup
+EOF
+}
+
+cmd_show() {
+  if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "No configuration found at ${CONFIG_FILE}"
+    exit 1
+  fi
+  jq -r '.[] | "\(.scope) scope: \(.install | length) Flatpak(s) from \(.repo.title) (\(.repo.url))\n  notify: \(.notify)\n  install: \(.install | join(", "))\n"' "${CONFIG_FILE}"
+}
+
+cmd_apply() {
+  case "${1:-}" in
+    system) sudo /usr/libexec/hyprland-image/system-flatpak-setup ;;
+    user)   /usr/libexec/hyprland-image/user-flatpak-setup ;;
+    all)    cmd_apply system; cmd_apply user ;;
+    *) echo "Usage: hyprland-flatpak-manager apply <all|user|system>" >&2; exit 1 ;;
+  esac
+}
+
+cmd_enable() {
+  case "${1:-}" in
+    system) sudo systemctl enable --now system-flatpak-setup.timer ;;
+    user)   systemctl --user enable --now user-flatpak-setup.timer ;;
+    all)    cmd_enable system; cmd_enable user ;;
+    *) echo "Usage: hyprland-flatpak-manager enable <all|user|system>" >&2; exit 1 ;;
+  esac
+}
+
+cmd_disable() {
+  case "${1:-}" in
+    system) sudo systemctl disable --now system-flatpak-setup.timer ;;
+    user)   systemctl --user disable --now user-flatpak-setup.timer ;;
+    all)    cmd_disable system; cmd_disable user ;;
+    *) echo "Usage: hyprland-flatpak-manager disable <all|user|system>" >&2; exit 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  show)    cmd_show ;;
+  apply)   shift; cmd_apply "${1:-}" ;;
+  enable)  shift; cmd_enable "${1:-}" ;;
+  disable) shift; cmd_disable "${1:-}" ;;
+  *) usage ;;
+esac

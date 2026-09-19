@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  # ly's SELinux context, plus apps installed from upstream release
+  # artifacts rather than a package repository (jq/curl/gcc are already
+  # installed at this point).
+  - type: script
+    snippets:
+      # Bazzite sets UserspaceHID=true in /etc/bluetooth/input.conf
+      # (their build does the same sed) so DualSense/DualShock and
+      # similar controllers expose their full HID profile (gyro,
+      # rumble) over Bluetooth instead of the reduced SPP profile.
+      - test -f /etc/bluetooth/input.conf && sed -i 's/#UserspaceHID.*/UserspaceHID=true/' /etc/bluetooth/input.conf || true
+      - semanage fcontext -a -t xdm_exec_t /usr/bin/ly 2>/dev/null || semanage fcontext -m -t xdm_exec_t /usr/bin/ly 2>/dev/null || true
+      - restorecon -v /usr/bin/ly 2>/dev/null || true
+      # setroubleshoot's util.py hardcodes /var/lib/selinux as the policy
+      # store, but on ostree/bootc systems it lives under /etc/selinux --
+      # without this patch setroubleshootd cannot analyze denials. Same
+      # sed Bazzite applies in its finalize stage (runs after the dnf
+      # modules, so setroubleshoot is installed by now).
+      - test -n "$(ls /usr/lib/python3.*/site-packages/setroubleshoot/util.py 2>/dev/null)" && sed -i 's#/var/lib/selinux#/etc/selinux#g' /usr/lib/python3.*/site-packages/setroubleshoot/util.py || true
+    scripts:
+      - install-obsidian.sh
+      - install-zotero.sh
+      - install-pyprland.sh
+      # - install-texlive.sh
+
+  # Dotfiles: installs chezmoi itself + the init/update services.
+  - type: chezmoi
+    repository: https://github.com/aahsnr-work/bazzfin
+    file-conflict-policy: replace
+
+  # Pre-seed /etc/skel at build time (same as the old setup-dotfiles.sh)
+  # so brand-new users get the dotfiles immediately at first login instead
+  # of waiting on chezmoi-init.service. Must run after the chezmoi module.
+  #
+  # -v makes chezmoi log each file it writes, and the `find` afterward
+  # lists what actually landed in /etc/skel — both purely so the build
+  # log itself proves the apply did something, instead of only proving
+  # the command exited 0.
+  # - type: script
+  #   snippets:
+  #     - HOME=/etc/skel /usr/bin/chezmoi init --apply --force --no-tty -v https://github.com/aahsnr-work/bazzfin
+  #     - echo "== /etc/skel contents after chezmoi apply ==" && find /etc/skel -maxdepth 3
+
+  # Homebrew itself (installer + update/upgrade timers), same intervals
+  # as the old brew-update.timer / brew-upgrade.timer.
+  - type: brew
+    update-interval: "6h"
+    update-wait-after-boot: "10m"
+    upgrade-interval: "8h"
+    upgrade-wait-after-boot: "30m"

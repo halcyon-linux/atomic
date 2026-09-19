@@ -1,0 +1,30 @@
+[Unit]
+Description=Home-Manager Initial Provisioning
+After=chezmoi-init.service
+Wants=chezmoi-init.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=1800
+ExecCondition=/usr/bin/bash -c 'test ! -f "$HOME/.local/state/home-manager-init.done"'
+ExecStart=/usr/bin/bash -lc '\
+  for i in $(seq 1 60); do \
+    [ -e /nix/var/nix/daemon-socket/socket ] && break; \
+    sleep 3; \
+  done; \
+  [ -f /etc/profile.d/nix.sh ] && . /etc/profile.d/nix.sh; \
+  [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ] && . "$HOME/.nix-profile/etc/profile.d/nix.sh"; \
+  if command -v nix >/dev/null 2>&1; then \
+    if [ -d "$HOME/.config/home-manager" ]; then \
+      echo "Applying Home-Manager configuration from dotfiles..."; \
+      nix run home-manager -- switch --flake "$HOME/.config/home-manager" || nix run home-manager -- switch || true; \
+    fi; \
+  fi; \
+  mkdir -p "$HOME/.local/state"; \
+  touch "$HOME/.local/state/home-manager-init.done"; \
+'
+
+[Install]
+WantedBy=default.target
+

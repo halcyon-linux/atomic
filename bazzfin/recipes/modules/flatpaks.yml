@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+
+modules:
+  # Flathub remotes for both scopes. Add Flatpak IDs to `install:` as needed
+  # (both lists were empty in the old setup-default-flatpaks.sh too).
+  - type: default-flatpaks
+    configurations:
+      - scope: system
+        notify: true
+        install: []
+      - scope: user
+        notify: true
+        install:
+          - com.github.tchx84.Flatseal
+          - org.onlyoffice.desktopeditors
+          - com.bitwarden.desktop
+          - com.ticktick.TickTick
+          - com.valvesoftware.Steam
+          - net.lutris.Lutris
+          - com.heroicgameslauncher.hgl
+          - com.github.Matoking.protontricks
+          - com.vysp3r.ProtonPlus
+          - org.freedesktop.Platform.VulkanLayer.MangoHud//25.08
+          - org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08
+
+  - type: fonts
+    fonts:
+      nerd-fonts:
+        - JetBrainsMono
+        - NerdFontsSymbolsOnly
+      google-fonts:
+        - JetBrains Mono
+        - Noto Emoji
+        - Noto Color Emoji

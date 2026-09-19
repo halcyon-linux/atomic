@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -eoux pipefail
+
+rm -rf /tmp/* || true
+rm -rf /var/log/dnf5.log || true
+find /boot -mindepth 1 -delete || true

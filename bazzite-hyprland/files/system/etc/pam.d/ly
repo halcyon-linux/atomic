@@ -1,0 +1,9 @@
+#%PAM-1.0
+# PAM stack for greetd with gnome-keyring auto-unlock support.
+auth       include      system-login
+account    include      system-login
+password   include      system-login
+session    include      system-login
+session    optional     pam_gnome_keyring.so auto_start
+auth       optional     pam_gnome_keyring.so
+

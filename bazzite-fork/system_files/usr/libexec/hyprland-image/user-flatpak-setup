@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# user-flatpak-setup - configure per-user Flatpak remotes and install the
+# Flatpaks configured for the "user" scope in
+# /etc/hyprland-image/default-flatpaks.json.
+#
+# Run at first login (and daily) by user-flatpak-setup.service, which is
+# triggered by user-flatpak-setup.timer.
+#
+set -euo pipefail
+
+CONFIG_FILE="/etc/hyprland-image/default-flatpaks.json"
+
+if ! command -v flatpak >/dev/null 2>&1; then
+  echo "flatpak not found; skipping user Flatpak setup." >&2
+  exit 0
+fi
+
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+  echo "No default-flatpaks configuration found at ${CONFIG_FILE}; nothing to do."
+  exit 0
+fi
+
+readarray -t configs < <(jq -c '.[] | select(.scope=="user")' "${CONFIG_FILE}")
+if [[ ${#configs[@]} -eq 0 ]]; then
+  echo "No user-scope default-flatpaks configuration; nothing to install."
+  exit 0
+fi
+
+for cfg in "${configs[@]}"; do
+  repo_url=$(jq -r '.repo.url' <<<"${cfg}")
+  repo_name=$(jq -r '.repo.name' <<<"${cfg}")
+  repo_title=$(jq -r '.repo.title' <<<"${cfg}")
+  notify=$(jq -r '.notify' <<<"${cfg}")
+  keep_fedora=$(jq -r '.keep_fedora' <<<"${cfg}")
+  readarray -t install < <(jq -r '.install[]' <<<"${cfg}")
+
+  if [[ "${keep_fedora}" != "true" ]]; then
+    if flatpak remotes --user --columns=name 2>/dev/null | grep -qx fedora; then
+      echo "Removing user flatpak remote 'fedora'"
+      flatpak remote-delete --user fedora --force || true
+    fi
+    if flatpak remotes --user --columns=name 2>/dev/null | grep -qx fedora-testing; then
+      echo "Removing user flatpak remote 'fedora-testing'"
+      flatpak remote-delete --user fedora-testing --force || true
+    fi
+  fi
+
+  echo "Configuring user Flatpak remote '${repo_name}' (${repo_title})"
+  flatpak remote-add --user --if-not-exists "${repo_name}" "${repo_url}" --title="${repo_title}"
+  flatpak remote-modify --user --enable "${repo_name}"
+
+  if [[ ${#install[@]} -gt 0 ]]; then
+    [[ "${notify}" == "true" ]] && notify-send --app-name="Flatpak Installer" \
+      "Installing ${#install[@]} user Flatpak(s) from ${repo_title}..." || true
+    echo "Installing user Flatpaks: ${install[*]}"
+    flatpak install --user --noninteractive "${repo_name}" "${install[@]}"
+    [[ "${notify}" == "true" ]] && notify-send --app-name="Flatpak Installer" \
+      "Finished installing user Flatpak(s) from ${repo_title}." || true
+  fi
+done
+
+echo "User Flatpak setup completed."

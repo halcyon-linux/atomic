@@ -1,0 +1,37 @@
+# Sched-ext scheduler defaults for scx_loader, taken verbatim from
+# Bazzite (system_files/deck/shared/etc/scx_loader/config.toml). Since
+# scx_loader.service is enabled, scx_lavd starts in Auto mode at boot and
+# the loader switches between the flag sets below as modes change
+# (scxctl switch -m gaming etc.).
+#
+# Change `default_sched` to one of: scx_bpfland, scx_rusty, scx_lavd,
+# scx_flash (all shipped by the scx-scheds package). Inspect/control it
+# with `scxctl get|list|start|switch|stop`, or watch live with `scxtop`.
+# To keep the CPU on Fedora's regular scheduler instead, disable the
+# daemon with `ujust toggle-scx disable`.
+default_sched = "scx_lavd"
+default_mode = "Auto"
+
+[scheds.scx_bpfland]
+auto_mode = []
+gaming_mode = ["-m", "performance"]
+lowlatency_mode = ["-s", "5000", "-S", "500", "-l", "5000", "-m", "performance"]
+powersave_mode = ["-m", "powersave"]
+
+[scheds.scx_rusty]
+auto_mode = []
+gaming_mode = []
+lowlatency_mode = []
+powersave_mode = []
+
+[scheds.scx_lavd]
+auto_mode = []
+gaming_mode = ["--performance"]
+lowlatency_mode = ["--performance"]
+powersave_mode = ["--powersave"]
+
+[scheds.scx_flash]
+auto_mode = []
+gaming_mode = []
+lowlatency_mode = []
+powersave_mode = []

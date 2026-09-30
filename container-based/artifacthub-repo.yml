@@ -1,0 +1,7 @@
+# Artifact Hub repository metadata (https://artifacthub.io/docs/topics/repositories/container-images/)
+# Register the halcyon repo on Artifact Hub and replace the placeholder UUID
+# below with the real repositoryID to get the verified badge + update tracking.
+repositoryID: 00000000-0000-0000-0000-000000000000
+owners:
+  - name: aahsnr-work
+    email: aahsnr-work@users.noreply.github.com

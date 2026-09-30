@@ -1,0 +1,21 @@
+---
+name: semantic-pr
+# Replaces .github/semantic.yml, which configured a hosted service that no
+# longer runs. This validates the PR TITLE only and never checks out PR code,
+# which is what makes pull_request_target safe here.
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    name: Validate PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

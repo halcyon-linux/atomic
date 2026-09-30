@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# halcyon verify — nix level (runs immediately after install-nix).
+# Winter pattern: nix + nix-daemon RPMs, var-nix.service + nix.mount,
+# tmpfiles dirs and the HOME-resolution profile hook.
+set -euo pipefail
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+echo "::group::nix-verify — winter pattern wiring"
+gate "nix package installed"             rpm -q nix
+gate "nix-daemon package installed"      rpm -q nix-daemon
+gate "var-nix.service unit"              test -f /usr/lib/systemd/system/var-nix.service
+gate "nix.mount unit"                    test -f /usr/lib/systemd/system/nix.mount
+# our overlay file is zz-halcyon-nix.conf (renamed from nix.conf to avoid
+# the overlay-overwrite collision with the Fedora nix RPM's own tmpfiles)
+gate "nix tmpfiles (store dirs)"         grep -q "1775 root nixbld" /usr/lib/tmpfiles.d/zz-halcyon-nix.conf
+gate "nix profile HOME-resolution hook"  test -f /etc/profile.d/01-nix-resolve-home-env.sh
+gate "nix-daemon enabled"                systemctl is-enabled nix-daemon
+echo "::endgroup::"
+[ "$fail" = 0 ] || { echo "::error::nix-verify failed"; exit 1; }
+echo "--- nix-verify: all checks passed ---"

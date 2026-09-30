@@ -1,0 +1,15 @@
+# halcyon Brewfile — ONLY formulas Fedora and Terra do not ship.
+#
+# Everything else (bat, btop, cava, chafa, direnv, dust, eza, fd, fzf, gnuplot,
+# lazygit, pandoc, ripgrep, starship, tealdeer, uv, yazi, zellij, atuin) is an
+# RPM from install-devtools / install-terra. environment.d APPENDS the brew bin
+# dirs to PATH so RPMs keep priority — a brewed duplicate can never be the
+# binary that runs, yet still costs build time (22 pours × up to 3 retries) and
+# boot-time extraction of the payload. install-devtools already documents this
+# intent ("brew only backfills what Fedora does not ship").
+#
+# Before adding a formula: if an RPM exists in Fedora or Terra, it belongs in
+# packages.json instead.
+brew "bun"
+brew "pixi"
+brew "opencode"

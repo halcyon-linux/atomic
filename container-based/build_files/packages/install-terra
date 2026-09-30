@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# halcyon build step — install-terra (USER-EDITABLE Terra list, exclusive resolution)
+#
+# Repo lifecycle + exclusivity rules:
+#   - every transaction here resolves from TERRA REPOS ONLY
+#     (--disablerepo='*' --enablerepo='terra*'), never as a Fedora fallback;
+#     a package missing from Terra fails the build loudly.
+#   - Terra repos are enabled only for this stage and disabled immediately
+#     after (finalize sweeps any leftover repo files).
+#
+# Ordering note: this stage runs after install-packages;
+# final-verify (the authoritative keeper gate) expects scx-*/umu-launcher/bazzite-portal
+# present. If you add packages with install-ordering needs, keep
+# that order in mind.
+#
+# Fonts parity (main fonts.yml) is included here: jetbrainsmono-nerd-fonts +
+# nerdfontssymbolsonly-nerd-fonts exist only in Terra; the Fedora-side fonts
+# (google-noto-*, jetbrains-mono-fonts, liberation) install in install-packages.
+set -euo pipefail
+# shellcheck source=build_files/packages-lib
+source /ctx/packages-lib
+packages_validate
+echo "::group::install-terra — Terra packages"
+FEDORA_MAJOR="$(rpm -E %fedora)"
+
+# --- the list you edit lives in build_files/packages.json (group "terra") ---
+# NOTE: terra-gamescope/terra-mangohud no longer exist in Terra (verified
+# live 2026-09-19) — Fedora 44 provides gamescope + mangohud directly, and
+# install-packages handles them (incl. mangohud.i686 for 32-bit overlays).
+# NOTE: zen-browser moved here from the retired sneexy/zen-browser COPR
+# (2026-09); the COPR window and its build.yml monitor entry are gone.
+readarray -t TERRA_PKGS < <(packages_for terra)
+# ---------------------------------------------------------------------------
+
+# 1) enable Terra via repofrompath and install the release packages with
+#    ONLY that repo enabled (no Fedora fallback for these either)
+dnf5 -y --setopt=install_weak_deps=False install --nogpgcheck \
+  --disablerepo='*' --enablerepo='terra' \
+  --repofrompath "terra,https://repos.fyralabs.com/terra${FEDORA_MAJOR}" \
+  terra-release
+# 2) optional subrepo release packages (mesa/multimedia) — only needed if you
+#    add packages from those subrepos to TERRA_PKGS; they ship their .repo
+#    files. Tolerated missing (|| true) because they are OPTIONAL repos.
+dnf5 -y --setopt=install_weak_deps=False install --nogpgcheck \
+  --disablerepo='*' --enablerepo='terra' \
+  --repofrompath "terra,https://repos.fyralabs.com/terra${FEDORA_MAJOR}" \
+  terra-release-mesa \
+  terra-release-multimedia \
+  || true
+# remove the hardcoded priority so repo options are effective
+sed -i '/^priority=/d' /etc/yum.repos.d/terra*.repo 2>/dev/null || true
+
+# 3) install the user list STRICTLY from Terra repos (the glob covers
+#    terra, terra-mesa, terra-multimedia); a missing package FAILS the build
+dnf5 -y --setopt=install_weak_deps=False install \
+  --disablerepo='*' --enablerepo='terra*' \
+  "${TERRA_PKGS[@]}"
+
+# 4) hard verification: every listed package must now be in the rpmdb
+for pkg in "${TERRA_PKGS[@]}"; do
+  rpm -q "${pkg%%.i686}" >/dev/null 2>&1 || {
+    echo "  FAIL  terra package not installed: ${pkg}"
+    exit 1
+  }
+done
+
+# 5) disable every terra repo immediately (repo lifecycle policy)
+dnf5 -y config-manager setopt "terra.enabled=0" 2>/dev/null || true
+for f in /etc/yum.repos.d/terra*.repo; do
+  [ -f "${f}" ] && sed -i 's/^enabled=1/enabled=0/' "${f}"
+done
+echo "::endgroup::"

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# halcyon verify — brew level (runs immediately after install-brew-bundle in
+# the same RUN, so the payload install-brew-bundle bakes must already exist).
+# Mirrors main's brew-verify.sh: Brewfile + baked payload + per-formula pour
+# receipts + "no /var state in the layer" + unit/helper/env wiring.
+set -euo pipefail
+
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+
+PAYLOAD=/usr/share/halcyon/brew-bundle.tar.zst
+BREWFILE=/usr/share/ublue-os/homebrew/Brewfile
+
+echo "::group::brew-verify — Brewfile + baked payload"
+gate "Brewfile staged"                    test -f "${BREWFILE}"
+formula_count=$(grep -cE '^[[:space:]]*brew "?[^" ]+"?' "${BREWFILE}" || true)
+echo "  INFO  ${BREWFILE}: ${formula_count} formulas"
+gate "Brewfile non-empty"                 test "${formula_count}" -gt 0
+
+gate "brew payload present"               test -s "${PAYLOAD}"
+if [ -s "${PAYLOAD}" ]; then
+  size=$(du -h "${PAYLOAD}" | cut -f1)
+  PAYLIST="$(mktemp)"
+  PAYLIST_LONG="$(mktemp)"
+  trap 'rm -f "${PAYLIST}" "${PAYLIST_LONG}"' EXIT
+  tar --zstd -tf "${PAYLOAD}" >"${PAYLIST}"
+  tar --zstd -tvf "${PAYLOAD}" >"${PAYLIST_LONG}"
+  entries=$(wc -l <"${PAYLIST}")
+  echo "  INFO  payload: ${size}, ${entries} entries"
+  gate "payload carries brew core"        grep -qF 'home/linuxbrew/.linuxbrew/bin/brew' "${PAYLIST}"
+
+  # brew-update.service / brew-upgrade.service gate on
+  # ConditionPathIsSymbolicLink=/home/linuxbrew/.linuxbrew/bin/brew. If the
+  # payload ever carries a regular file there, BOTH timers skip forever without
+  # reporting anything. Assert the link survives the pack.
+  gate "bin/brew is a symlink in payload" \
+    grep -qE '^l.*home/linuxbrew/\.linuxbrew/bin/brew ->' "${PAYLIST_LONG}"
+
+  echo "--- Checking every Brewfile formula is inside the payload ---"
+  # "Inside" means a COMPLETE pour: Cellar/<name>/<version>/INSTALL_RECEIPT.json.
+  # grep -c (no -q, no early exit) for the two-stage match: `grep | grep -q`
+  # under pipefail can die with SIGPIPE (141) — a false negative seen live.
+  missing=0
+  while IFS= read -r name; do
+    [ -z "${name}" ] && continue
+    receipts=$(grep -F "Cellar/${name}/" "${PAYLIST}" 2>/dev/null | grep -cF "INSTALL_RECEIPT.json" || true)
+    if [ "${receipts}" -gt 0 ]; then
+      echo "  PASS  payload contains a complete pour of Cellar/${name} (${receipts} receipt(s))"
+    else
+      echo "  FAIL  Cellar/${name} not found (complete) in payload — payload entries for it:"
+      grep -F "Cellar/${name}/" "${PAYLIST}" 2>/dev/null | head -5 | sed 's/^/        /' || true
+      missing=$((missing + 1))
+    fi
+  done < <(sed -nE 's/^[[:space:]]*brew "?([^" ]+)"?.*/\1/p' "${BREWFILE}" | sed 's|^.*/||')
+  if [ "${missing}" -gt 0 ]; then
+    echo "  FAIL  ${missing} formula(s) missing from the payload"
+    fail=1
+  fi
+fi
+echo "::endgroup::"
+
+echo "::group::brew-verify — Brewfile carries only what Fedora/Terra do not ship"
+# environment.d APPENDS the brew dirs to PATH, so an RPM always wins. A formula
+# that also has an RPM is poured, shipped and permanently shadowed. Warn only:
+# a new no-RPM formula is legitimate, add it to the allowlist below.
+dupes=0
+while IFS= read -r name; do
+  [ -z "${name}" ] && continue
+  case "${name}" in
+    bun|pixi|opencode) continue ;;
+  esac
+  echo "  WARN  ${name} is in the Brewfile but not on the no-RPM allowlist — confirm Fedora/Terra really lack it"
+  dupes=$((dupes + 1))
+done < <(sed -nE 's/^[[:space:]]*brew "?([^" ]+)"?.*/\1/p' "${BREWFILE}" | sed 's|^.*/||')
+[ "${dupes}" -eq 0 ] && echo "  OK    no RPM-shadowed formulas in the Brewfile"
+echo "::endgroup::"
+
+echo "::group::brew-verify — no /var state in the layer"
+gate "no /home/linuxbrew in the layer"    test ! -e /home/linuxbrew
+gate "no /var/home/linuxbrew in layer"    test ! -e /var/home/linuxbrew
+gate "no build HOME residue"              test ! -e /var/tmp/brew-build-home
+echo "::endgroup::"
+
+echo "::group::brew-verify — units + runtime helpers + environment wiring"
+gate "system seeding unit"                test -f /usr/lib/systemd/system/halcyon-brew-bundle.service
+gate "user fallback unit"                 test -f /usr/lib/systemd/user/brew-bundle.service
+gate "brew-update.service"                test -f /usr/lib/systemd/system/brew-update.service
+gate "brew-update.timer"                  test -f /usr/lib/systemd/system/brew-update.timer
+gate "brew-upgrade.service"               test -f /usr/lib/systemd/system/brew-upgrade.service
+gate "brew-upgrade.timer"                 test -f /usr/lib/systemd/system/brew-upgrade.timer
+gate "boot-time extractor shipped"        test -x /usr/libexec/halcyon-image/brew-bundle-extract
+gate "login fallback shipped"             test -x /usr/libexec/halcyon-image/brew-bundle-install
+gate "environment.d brew PATH"            grep -q 'HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew' /etc/environment.d/10-homebrew.conf
+gate "profile.d interactive hook"         test -f /etc/profile.d/brew.sh
+gate "tmpfiles rules"                     grep -q 'var/home/linuxbrew' /usr/lib/tmpfiles.d/zz-halcyon-homebrew.conf
+echo "::endgroup::"
+
+[ "${fail}" -eq 0 ] || { echo "::error::brew-verify failed"; exit 1; }
+echo "--- brew-verify: all checks passed ---"

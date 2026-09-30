@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# halcyon verify — branding level (runs immediately after image-info).
+# Adapted from main's branding-verify.sh.
+set -euo pipefail
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+echo "::group::branding-verify — os-release + plymouth"
+gate "os-release NAME=halcyon"           grep -q '^NAME=halcyon' /usr/lib/os-release
+gate "os-release PRETTY_NAME"            grep -q '^PRETTY_NAME="halcyon' /usr/lib/os-release
+gate "os-release HOME_URL"               grep -q '^HOME_URL=https://github.com/aahsnr-work/halcyon' /usr/lib/os-release
+gate "image-info.json present"           test -s /usr/share/ublue-os/image-info.json
+gate "sigstore pubkey shipped"           test -s /etc/pki/containers/halcyon.pub
+gate "no /usr/etc tree created"          sh -c '! test -e /usr/etc'
+gate "sigstore policy entry"             grep -q '"type": "sigstoreSigned"' /etc/containers/policy.json
+gate "policy keyPath matches shipped key" grep -q '"keyPath": "/etc/pki/containers/halcyon.pub"' /etc/containers/policy.json
+gate "policy matches signatures by repo" grep -q '"type": "matchRepository"' /etc/containers/policy.json
+gate "registries.d sigstore attachments" grep -q 'use-sigstore-attachments: true' /etc/containers/registries.d/halcyon.yaml
+gate "plymouth theme selected"           grep -q 'Theme=halcyon' /etc/plymouth/plymouthd.conf
+gate "plymouth theme file"               test -f /usr/share/plymouth/themes/halcyon/theme.plymouth
+gate "plymouth background asset"         test -f /usr/share/plymouth/themes/halcyon/background.png
+gate "plymouth throbber frames"          sh -c 'ls /usr/share/plymouth/themes/halcyon/throbber-*.png >/dev/null 2>&1'
+gate "wallpaper baked"                   test -f /usr/share/backgrounds/halcyon/astronaut.png
+echo "::endgroup::"
+[ "$fail" = 0 ] || { echo "::error::branding-verify failed"; exit 1; }
+echo "--- branding-verify: all checks passed ---"

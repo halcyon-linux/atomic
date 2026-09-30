@@ -1,0 +1,116 @@
+---
+name: lint
+# PR gate: every host-side check, so PRs fail here in seconds instead of
+# 40 minutes into the image build.
+on:
+  pull_request:
+  push:
+    branches: [container, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Just + shell syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install just
+        uses: extractions/setup-just@v4
+
+      - name: Ensure shellcheck
+        run: |
+          command -v shellcheck >/dev/null 2>&1 || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          }
+
+      - name: Check Just + bash syntax
+        run: |
+          source .github/log-helpers.sh
+          banner "just check"
+          just check && ok "just check passed"
+
+      - name: Shellcheck build_files
+        run: |
+          source .github/log-helpers.sh
+          banner "just lint"
+          just lint && ok "just lint passed"
+
+  github-audit:
+    name: .github audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Audit .github tree
+        run: |
+          source .github/log-helpers.sh
+          banner "verify-github"
+          bash verify/verify-github.sh
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Expression/syntax/input checking only. Shell inside `run:` is skipped
+      # (-shellcheck=) because our steps deliberately word-split and source
+      # log-helpers.sh, which would produce noise, not signal.
+      - name: Lint workflows
+        run: |
+          docker run --rm -v "${PWD}:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.12 -color -shellcheck= -pyflakes=
+
+  python:
+    name: Python helpers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install just
+        uses: extractions/setup-just@v4
+
+      # ruff catches undefined names; the -h smoke test and py_compile cannot.
+      - name: Static-check helpers
+        run: |
+          source .github/log-helpers.sh
+          banner "just lint-python"
+          just lint-python && ok "no undefined names / syntax errors"
+
+      - name: Run helper test suites
+        run: |
+          source .github/log-helpers.sh
+          banner "just test-python"
+          just test-python && ok "python suites passed"

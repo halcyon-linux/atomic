@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# halcyon build step — image-info (os-release identity + plymouth theme)
+# assets. PRETTY_NAME reflects the actual base (MIGRATION-sanctioned
+# divergence from main's "halcyon (Bazzite fork)"); HOME_URL matches main.
+set -euo pipefail
+echo "::group::image-info — os-release + plymouth"
+sed -i 's|^NAME=.*|NAME=halcyon|; s|^PRETTY_NAME=.*|PRETTY_NAME="halcyon (Fedora bootc)"|' /usr/lib/os-release
+if grep -q '^HOME_URL=' /usr/lib/os-release; then
+  sed -i 's|^HOME_URL=.*|HOME_URL=https://github.com/aahsnr-work/halcyon|' /usr/lib/os-release
+else
+  echo 'HOME_URL=https://github.com/aahsnr-work/halcyon' >> /usr/lib/os-release
+fi
+# plymouth theme assets are generated from the baked astronaut wallpaper.
+# NOTE: ctx is flat per build_files subfolder — build-plymouth-assets lives in
+# desktop/ next to this script, NOT in branding/.
+/ctx/desktop/build-plymouth-assets
+echo "::endgroup::"
+
+echo "::group::image-info — image-info.json + sigstore policy assets"
+# bazzite-steam / bazzite-steam-firstrun / 83-halcyon-audio read this file
+install -d /usr/share/ublue-os
+cat >/usr/share/ublue-os/image-info.json <<EOF
+{ "image-name": "halcyon",
+  "image-vendor": "aahsnr-work",
+  "image-ref": "ostree-image-signed:docker://ghcr.io/aahsnr-work/halcyon",
+  "image-tag": "latest",
+  "base-image-name": "fedora-bootc",
+  "fedora-version": "$(rpm -E %fedora)" }
+EOF
+chmod 0644 /usr/share/ublue-os/image-info.json
+
+# Signed-rebase support: ship the cosign public key plus a sigstore policy
+# entry so `bootc switch --enforce-container-sigpolicy ostree-image-signed:...`
+# verifies out of the box.
+#
+# The key goes in /etc/pki/containers, NOT /usr/etc: /usr/etc is bootc's
+# client-side view of the default /etc, must not be populated by images, and is
+# checked by `bootc container lint`.
+install -Dm0644 /ctx/cosign.pub /etc/pki/containers/halcyon.pub
+install -d /etc/containers/registries.d
+cat >/etc/containers/registries.d/halcyon.yaml <<'YAML'
+docker:
+  ghcr.io/aahsnr-work/halcyon:
+    use-sigstore-attachments: true
+YAML
+# policy.json: require our sigstore signature for our image path, accept
+# everything else (the bootc default).
+#
+# signedIdentity matchRepository is REQUIRED: cosign signs by digest
+# (repo@sha256:...) so the signed identity is the repository, but bootc pulls by
+# tag (repo:latest). The default matcher wants an exact identity match for
+# tag-referenced images and would reject the signature.
+cat >/etc/containers/policy.json <<'POLICY'
+{
+    "default": [{"type": "insecureAcceptAnything"}],
+    "transports": {
+        "docker": {
+            "ghcr.io/aahsnr-work/halcyon": [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPath": "/etc/pki/containers/halcyon.pub",
+                    "signedIdentity": {"type": "matchRepository"}
+                }
+            ]
+        }
+    }
+}
+POLICY
+echo "  OK    image-info.json + halcyon.pub + policy.json + registries.d written"
+echo "::endgroup::"

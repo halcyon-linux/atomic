@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# halcyon verify — built-apps level (runs immediately after install-built-apps).
+# Adapted from main's build-scripts-verify.sh (obsidian/zotero/pyprland/
+# texlive/python-packages).
+set -euo pipefail
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+echo "::group::built-apps-verify — obsidian/zotero"
+gate "obsidian desktop entry"            test -f /usr/share/applications/obsidian.desktop
+gate "obsidian launcher"                 test -x /usr/bin/obsidian
+gate "zotero launcher"                   test -x /usr/bin/zotero
+gate "zotero desktop entry"              test -f /usr/share/applications/zotero.desktop
+gate "zotero autoupdate disabled"        grep -q 'DisableAppUpdate' /usr/lib/zotero/distribution/policies.json 2>/dev/null
+echo "::endgroup::"
+
+echo "::group::built-apps-verify — pyprland"
+gate "pypr console script"               test -x /usr/bin/pypr
+gate "pyprland user unit"                test -f /usr/lib/systemd/user/pyprland.service
+gate "Hyprland condition drop-in"        grep -rq 'XDG_CURRENT_DESKTOP=Hyprland' /usr/lib/systemd/user/pyprland.service.d/ 2>/dev/null
+echo "::endgroup::"
+
+echo "::group::built-apps-verify — texlive + python helpers"
+gate "texlive profile script"            test -f /etc/profile.d/texlive.sh
+gate "texlive binaries"                  test -x /usr/lib/texlive/bin/x86_64-linux/pdflatex
+gate "shared venv present"               test -d /usr/lib/halcyon-python
+for b in dump-to-markdown fconf fe ff fkill fp fssh rmi rmtmp screenshot se; do
+  gate "python helper: $b"               test -e "/usr/bin/$b"
+done
+echo "::endgroup::"
+
+[ "$fail" = 0 ] || { echo "::error::built-apps-verify failed"; exit 1; }
+echo "--- built-apps-verify: all checks passed ---"

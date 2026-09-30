@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# halcyon verify — packages level (runs immediately after install-packages):
+# desktop stack, apps, and the third-party repo end state of that stage.
+# Adapted from main's desktop-verify.sh + apps-verify.sh.
+set -euo pipefail
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+echo "::group::packages-verify — desktop stack"
+gate "hyprland-git installed"            rpm -q hyprland-git
+gate "hyprland-guiutils installed"       rpm -q hyprland-guiutils
+gate "noctalia-greeter-git installed"    rpm -q noctalia-greeter-git
+gate "greetd installed"                  rpm -q greetd
+gate "xdg-desktop-portal-hyprland"       rpm -q xdg-desktop-portal-hyprland
+gate "xdg-desktop-portal-gtk"            rpm -q xdg-desktop-portal-gtk
+gate "kitty + terminfo"                  rpm -q kitty kitty-terminfo
+gate "thunar + archive plugin"           rpm -q Thunar thunar-archive-plugin
+gate "greeter wrapper executable"        test -x /usr/bin/noctalia-greeter-session
+gate "greetd launches noctalia"          grep -qF 'noctalia-greeter-session' /etc/greetd/config.toml
+gate "fonts: jetbrains-mono"             rpm -q jetbrains-mono-fonts
+gate "fonts: noto emoji + color emoji"   rpm -q google-noto-emoji-fonts google-noto-color-emoji-fonts
+echo "::endgroup::"
+
+echo "::group::packages-verify — build-tool preconditions for later stages"
+# install-brew-bundle (Stage 07) and install-texlive (Stage 10) hard-fail
+# without these. Catching it here names the missing package; catching it there
+# names a stage that looks unrelated.
+gate "zstd (brew payload packing)"       command -v zstd
+gate "setpriv (brew uid drop)"           command -v setpriv
+gate "gpg (texlive signature check)"     command -v gpg
+gate "jq (packages-lib + runtime)"       command -v jq
+gate "gcc (brew formula postinstall)"    command -v gcc
+echo "::endgroup::"
+
+echo "::group::packages-verify — apps + repo end state"
+gate "vs code installed"                 rpm -q code
+gate "brave-browser installed"           rpm -q brave-browser
+gate "brave-origin installed"            rpm -q brave-origin
+gate "neovim + emacs-pgtk"               rpm -q neovim emacs-pgtk
+gate "ublue machinery (ublueos-packages)" rpm -q bazaar ublue-os-just uupd
+gate "vscode repo file removed"          sh -c '! test -f /etc/yum.repos.d/vscode.repo'
+gate "brave repo file removed"           sh -c '! ls /etc/yum.repos.d/brave-browser* >/dev/null 2>&1'
+gate "consumed COPR repos disabled"      sh -c '! grep -l "^enabled=1" /etc/yum.repos.d/_copr:*lionheartp* /etc/yum.repos.d/_copr:*ublue* 2>/dev/null | grep -q .'
+# zen-browser is intentionally NOT gated here: it resolves from Terra and
+# installs in Stage 05 (install-terra's inline rpm -q loop covers every terra
+# package); final-verify keeps the end-state gate.
+echo "::endgroup::"
+
+[ "$fail" = 0 ] || { echo "::error::packages-verify failed"; exit 1; }
+echo "--- packages-verify: all checks passed ---"

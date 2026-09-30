@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# halcyon verify — kernel level (runs immediately after install-kernel in the
+# same RUN). Verifies p03 kernel + prebuilt nvidia-open modules, removal of the
+# stock kernel, vmlinuz presence, SELinux kernel configuration and module policy,
+# version match between driver modules and Negativo17 userland, nvidia-smi tool,
+# 32-bit driver libraries, and Negativo17 repo deactivation.
+set -euo pipefail
+
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+
+echo "::group::kernel-verify — p03 kernel + nvidia-open + userland"
+KVER="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' kernel-p03)"
+NV_KO="$(find "/usr/lib/modules/${KVER}" -name 'nvidia.ko*' 2>/dev/null | head -1)"
+NV_MOD_VER="$(modinfo -F version "${NV_KO}" 2>/dev/null || true)"
+
+gate "p03 kernel installed"              rpm -q kernel-p03
+gate "nvidia-open built for p03"         rpm -q kernel-p03-nvidia-open
+# shellcheck disable=SC2016  # single quotes for inner subshell
+gate "stock kernel absent"               sh -c '! rpm -q kernel >/dev/null 2>&1'
+gate "p03 vmlinuz present"               test -f "/usr/lib/modules/${KVER}/vmlinuz"
+gate "nvidia modules for p03"            sh -c "find /usr/lib/modules/${KVER} -name 'nvidia.ko*' | grep -q ."
+gate "p03 keeps SELinux config"          grep -q '^CONFIG_SECURITY_SELINUX=y' "/usr/lib/modules/${KVER}/config"
+gate "nvidia SELinux policy linked"      sh -c 'semodule -lfull 2>/dev/null | grep -q nvidia-driver'
+gate "nvidia userland matches modules"   test "${NV_MOD_VER}" = "$(rpm -q --qf '%{VERSION}' nvidia-driver-libs.x86_64)"
+gate "nvidia-smi present"                test -x /usr/bin/nvidia-smi
+gate "32-bit nvidia + mesa libs"         rpm -q nvidia-driver-libs.i686 mesa-libGL.i686
+gate "negativo17 repo disabled"          sh -c '! grep -l "^enabled=1" /etc/yum.repos.d/fedora-nvidia.repo 2>/dev/null | grep -q .'
+echo "::endgroup::"
+
+[ "$fail" = 0 ] || { echo "::error::kernel-verify failed"; exit 1; }
+echo "--- kernel-verify: all checks passed ---"

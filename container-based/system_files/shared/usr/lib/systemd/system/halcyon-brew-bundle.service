@@ -1,0 +1,20 @@
+[Unit]
+Description=Seed halcyon Homebrew (core + Brewfile formulas) from the image payload (pre-login, offline)
+Documentation=https://github.com/aahsnr-work/halcyon
+# halcyon is built on fedora-bootc (NOT the Bazzite base), so unlike main this
+# image ships no brew-setup.service — the payload below carries the WHOLE
+# prefix: brew core + every Brewfile formula poured at build time. Extraction
+# is deliberately network-free so first-login availability holds even on an
+# offline first boot / rebase (/var is NOT reseeded on rebase, hence the
+# payload rides in /usr).
+ConditionPathExists=/usr/share/halcyon/brew-bundle.tar.zst
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halcyon-image/brew-bundle-extract
+# Generous on purpose: ~87k files extracted then merged on slow eMMC
+# (handhelds) can take several minutes.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

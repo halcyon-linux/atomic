@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# halcyon build step — configure-system (units, services, chezmoi + brew wiring)
+# (ujust machinery + pyprland unit + flatpak user unit are wired in their own
+# stages; the brew payload is baked in the brew stage — this stage enables the
+# seed/catch-up/update units.)
+set -euo pipefail
+echo "::group::configure-system — units + services"
+# systemd units ship via the system_files overlay (usr/lib/systemd);
+# this stage wires enablement only
+# system services: greetd (+ tty2 escape hatch), nix (winter pattern: the
+# /nix bind mount over the /var/nix store root)
+systemctl enable greetd.service getty@tty2.service 2>/dev/null || true
+systemctl enable var-nix.service nix.mount 2>/dev/null || true
+# brew: pre-login offline seeding at boot + the blue-build update/upgrade
+# timers (payload is baked by build_files/brew/install-brew-bundle)
+systemctl enable halcyon-brew-bundle.service 2>/dev/null || \
+  ln -sf /usr/lib/systemd/system/halcyon-brew-bundle.service /etc/systemd/system/multi-user.target.wants/halcyon-brew-bundle.service
+systemctl enable brew-update.timer brew-upgrade.timer 2>/dev/null || {
+  mkdir -p /etc/systemd/system/timers.target.wants
+  ln -sf /usr/lib/systemd/system/brew-update.timer /etc/systemd/system/timers.target.wants/brew-update.timer
+  ln -sf /usr/lib/systemd/system/brew-upgrade.timer /etc/systemd/system/timers.target.wants/brew-upgrade.timer
+}
+# masks (same as the BlueBuild services.yml)
+for u in sddm.service gdm.service bazzite-autologin.service nvidia-persistenced.service nvidia-powerd.service; do
+  ln -sf /dev/null /etc/systemd/system/"$u"
+done
+# --- global user unit wiring (enabled for every future user, like the
+# BlueBuild modules' --global enablement) ---
+mkdir -p /etc/systemd/user/default.target.wants /etc/systemd/user/timers.target.wants
+# pyprland: Hyprland companion daemon
+ln -sf /usr/lib/systemd/user/pyprland.service /etc/systemd/user/default.target.wants/pyprland.service 2>/dev/null || true
+# chezmoi: first-login init + update timer (blue-build chezmoi module wiring:
+# `systemctl --global enable chezmoi-init.service chezmoi-update.timer`)
+systemctl --global enable chezmoi-init.service chezmoi-update.timer 2>/dev/null || {
+  ln -sf /usr/lib/systemd/user/chezmoi-init.service /etc/systemd/user/default.target.wants/chezmoi-init.service
+  ln -sf /usr/lib/systemd/user/chezmoi-update.timer /etc/systemd/user/timers.target.wants/chezmoi-update.timer
+}
+# brew: per-user online catch-up fallback at first login
+ln -sf /usr/lib/systemd/user/brew-bundle.service /etc/systemd/user/default.target.wants/brew-bundle.service
+# flatpak: per-user flathub setup at first login (user repo ONLY)
+ln -sf /usr/lib/systemd/user/halcyon-flatpak-setup.service /etc/systemd/user/default.target.wants/halcyon-flatpak-setup.service
+echo "  INFO  global user-unit wiring:"
+find /etc/systemd/user/default.target.wants /etc/systemd/user/timers.target.wants \
+  -mindepth 1 -printf '        %p -> %l\n' 2>/dev/null | sort
+echo "::endgroup::"

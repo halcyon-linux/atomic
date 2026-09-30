@@ -1,0 +1,24 @@
+[Unit]
+Description=Halcyon Homebrew formulas: online catch-up fallback (once, at first login)
+Documentation=https://github.com/aahsnr-work/halcyon
+# Normally a no-op: halcyon-brew-bundle.service (system, multi-user.target)
+# seeds all Brewfile formulas from the image payload at boot, pre-login and
+# offline. This user unit only does work when that seeding could not
+# complete (payload missing/damaged) — it converges online at login.
+Wants=network-online.target
+After=network-online.target
+# Run only once: skip if the sentinel file already exists.
+ConditionPathExists=!%h/.config/halcyon/.brew-bundle-done
+
+[Service]
+Type=oneshot
+# Ensure the sentinel directory exists before we start.
+ExecStartPre=/usr/bin/mkdir -p %h/.config/halcyon
+ExecStart=/usr/libexec/halcyon-image/brew-bundle-install
+# Write sentinel only on success (ExecStartPost runs only when ExecStart exits 0).
+ExecStartPost=/usr/bin/touch %h/.config/halcyon/.brew-bundle-done
+# Give brew bundle plenty of time to download and install all packages.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

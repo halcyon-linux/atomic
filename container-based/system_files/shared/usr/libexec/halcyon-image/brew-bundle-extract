@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# halcyon brew-bundle-extract — boot-time (pre-login, offline) Homebrew seeder.
+# Runs from halcyon-brew-bundle.service as root. Never invokes the brew
+# binary (it refuses to run as root); pour completeness is checked via the
+# INSTALL_RECEIPT.json that every pour writes into its keg. Missing or
+# incomplete formulas are repaired from the image payload with no-clobber
+# semantics — a newer formula the user installed or brewed themselves is
+# never downgraded, the same contract as ublue-os/brew's brew-setup.service
+# `cp -R -n`.
+#
+# On halcyon (fedora-bootc base) this payload carries the WHOLE prefix — brew
+# core AND Brewfile formulas poured at build time — so on a fresh install or
+# rebase this script alone materialises a fully working /home/linuxbrew.
+set -euo pipefail
+
+BREWFILE="/usr/share/ublue-os/homebrew/Brewfile"
+PAYLOAD="/usr/share/halcyon/brew-bundle.tar.zst"
+PREFIX="/home/linuxbrew/.linuxbrew"
+CELLAR="${PREFIX}/Cellar"
+
+echo "=== Halcyon: brew-bundle boot-time seeding ==="
+
+# Non-fatal by design: the login-time fallback (brew-bundle.service user
+# unit) still converges online if this payload is unavailable.
+if [ ! -f "${PAYLOAD}" ] || [ ! -f "${BREWFILE}" ]; then
+  echo "WARN: ${PAYLOAD} or ${BREWFILE} missing — skipping boot seeding (login fallback will handle it)."
+  exit 0
+fi
+
+# --- Classify Brewfile formulas against the live Cellar. A formula counts
+#     as installed only when its pour COMPLETED — every pour writes a
+#     Cellar/<name>/<version>/INSTALL_RECEIPT.json "tab". A bare directory
+#     without a receipt is an incomplete pour (killed seeding, power loss,
+#     full disk) and is repaired from the payload instead of trusted. ---
+formula_complete() {
+  ls "${CELLAR}/$1"/*/INSTALL_RECEIPT.json >/dev/null 2>&1
+}
+
+missing=()
+incomplete=()
+while IFS= read -r name; do
+  [ -z "${name}" ] && continue
+  if [ ! -d "${CELLAR}/${name}" ]; then
+    missing+=("${name}")
+  elif ! formula_complete "${name}"; then
+    incomplete+=("${name}")
+  fi
+# Cellar dirs are named by formula only — strip any "tap/" prefix and
+# tolerate quoted or unquoted entries, so new Brewfile lines of any
+# common style are picked up automatically.
+done < <(sed -nE 's/^[[:space:]]*brew "?([^" ]+)"?.*/\1/p' "${BREWFILE}" | sed 's|^.*/||')
+
+if [ "${#missing[@]}" -eq 0 ] && [ "${#incomplete[@]}" -eq 0 ]; then
+  echo "OK: All Brewfile formulas present and complete — nothing to seed."
+  exit 0
+fi
+
+if [ "${#incomplete[@]}" -gt 0 ]; then
+  for name in "${incomplete[@]}"; do
+    echo "INFO: Removing incomplete pour of ${name} (no INSTALL_RECEIPT.json)"
+    rm -rf "${CELLAR:?}/${name:?}"
+  done
+fi
+
+total=$(( ${#missing[@]} + ${#incomplete[@]} ))
+echo "INFO: Seeding ${total} formula(s): ${missing[*]:-} ${incomplete[*]:-}"
+repair=( "${missing[@]}" "${incomplete[@]}" )
+
+# --- Extract the payload; /var/tmp is disk-backed (tmpfs-safe for the
+#     larger payload, unlike /tmp). Created if missing: the image layer does
+#     not ship /var/tmp (tmp.conf's `q /var/tmp` recreates it on boot, but
+#     never assume the environment) ---
+install -d -m 1777 /var/tmp
+TMP="$(mktemp -d /var/tmp/hbrew-seed.XXXXXX)"
+trap 'rm -rf "${TMP}"' EXIT
+
+tar --zstd -xf "${PAYLOAD}" -C "${TMP}"
+
+# --- Security: refuse to merge through pre-planted symlinks ---
+# The merge target lives under /var/home (user-writable territory). A
+# symlink planted at the prefix would make the root cp descend into an
+# attacker-chosen directory. Healthy systems always have real directories
+# here (this unit's own extraction creates them).
+if [ -L /home/linuxbrew ] || [ -L "${PREFIX}" ]; then
+  echo "WARN: /home/linuxbrew or ${PREFIX} is a symlink — refusing boot seeding (login fallback will converge online)."
+  exit 0
+fi
+
+# --- No-clobber merge into the live prefix. This also self-heals a
+#     missing/failed brew core, since the payload carries the whole
+#     prefix (brew included). ---
+mkdir -p /home/linuxbrew
+cp -R -n "${TMP}/home/linuxbrew/.linuxbrew" /home/linuxbrew
+chown -R 1000:1000 /home/linuxbrew
+touch "${PREFIX}/.halcyon-bundle-seeded" 2>/dev/null || true
+
+# --- Report what actually landed (receipt criterion, not bare dirs) ---
+still_missing=()
+for name in "${repair[@]}"; do
+  if ! formula_complete "${name}"; then
+    still_missing+=("${name}")
+  fi
+done
+
+if [ "${#still_missing[@]}" -gt 0 ]; then
+  echo "WARN: Formulas still absent after seeding: ${still_missing[*]} — login fallback will retry online."
+  exit 0
+fi
+
+echo "OK: All ${total} previously-missing/incomplete formula(s) repaired (offline, pre-login)."

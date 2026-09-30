@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# halcyon verify — system level (runs immediately after configure-system).
+# Adapted from main's files-verify.sh: global user-unit wiring, greetd stack,
+# PATH guard regression, default shell.
+set -euo pipefail
+fail=0
+gate() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then echo "  PASS  $desc"; else echo "  FAIL  $desc"; fail=1; fi; }
+echo "::group::system-verify — global user unit wiring"
+gate "chezmoi-init enabled --global"     test -L /etc/systemd/user/default.target.wants/chezmoi-init.service
+gate "chezmoi-update.timer enabled"      test -L /etc/systemd/user/timers.target.wants/chezmoi-update.timer
+gate "brew-bundle fallback --global"     test -L /etc/systemd/user/default.target.wants/brew-bundle.service
+gate "greetd enabled"                    systemctl is-enabled greetd.service
+gate "var-nix enabled"                   systemctl is-enabled var-nix.service
+gate "nix.mount enabled"                 systemctl is-enabled nix.mount
+gate "brew seeding unit enabled"         systemctl is-enabled halcyon-brew-bundle.service
+gate "brew-update.timer enabled"         systemctl is-enabled brew-update.timer
+gate "brew-upgrade.timer enabled"        systemctl is-enabled brew-upgrade.timer
+gate "pyprland enabled --global"         test -L /etc/systemd/user/default.target.wants/pyprland.service
+gate "flatpak setup enabled --global"    test -L /etc/systemd/user/default.target.wants/halcyon-flatpak-setup.service
+echo "::endgroup::"
+
+echo "::group::system-verify — greetd + login environment"
+gate "greetd config present"             test -f /etc/greetd/config.toml
+gate "greetd PAM with keyring unlock"    sh -c 'grep -q pam_gnome_keyring.so /etc/pam.d/greetd'
+gate "noctalia tmpfiles rule"            test -f /usr/lib/tmpfiles.d/noctalia-greeter-state.conf
+gate "PATH guard present"                test -f /etc/profile.d/00-path-guard.sh
+gate "halcyon helper PATH export"        grep -q '/usr/libexec/halcyon-image' /etc/profile.d/image-path.sh
+gate "brew interactive shell hook"       test -f /etc/profile.d/brew.sh
+gate "brew environment.d session PATH"   grep -q 'linuxbrew/.linuxbrew/bin' /etc/environment.d/10-homebrew.conf
+gate "brew tmpfiles rules"               grep -q 'var/home/linuxbrew' /usr/lib/tmpfiles.d/zz-halcyon-homebrew.conf
+gate "empty-PATH login regression"       env -i PATH= HOME=/root /bin/bash -lc 'command -v grep'
+gate "zsh is the default shell"          grep -q 'SHELL=/bin/zsh' /etc/default/useradd
+echo "::endgroup::"
+
+[ "$fail" = 0 ] || { echo "::error::system-verify failed"; exit 1; }
+echo "--- system-verify: all checks passed ---"

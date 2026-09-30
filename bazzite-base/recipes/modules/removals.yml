@@ -1,0 +1,80 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# removals.yml — runs FIRST (constraint 5), before any installs.
+# Step B lists only proven-present packages (dnf module remove hard-fails on
+# anything missing); compose-variant candidates go through the rpm-q-filtered
+# Step C script with hard post-verification.
+modules:
+  # ── Step A — detection / inventory ─────────────────────────────────────────
+  - type: script
+    scripts:
+      - inventory.sh
+
+  # ── Step B — confirmed removals (dnf module; every entry proven present) ──
+  - type: dnf
+    remove:
+      auto-remove: true # sweep orphaned deps
+      packages:
+        # Bazzite GNOME additions (§1.9a)
+        - nautilus-gsconnect
+        - gnome-shell-extension-gsconnect
+        - gnome-shell-extension-user-theme
+        - gnome-search-yafti
+        - gnome-rounded-blur
+        - firewall-config
+        # input-method extras (§1.9a)
+        - ibus-mozc
+        - ibus-pinyin
+        - ibus-table-chinese-cangjie
+        - ibus-table-chinese-quick
+        # handheld/Deck stack, all-image bake (§1.2)
+        - inputplumber
+        - steamos-manager-powerstation
+        - jupiter-fan-control
+        - jupiter-hw-support-btrfs
+        - galileo-mura
+        - steamdeck-dsp
+        - powerbuttond
+        - vpower
+        - sdgyrodsu
+        - hid-replay
+        - steamdeck-backgrounds
+        - steamdeck-gnome-presets
+        # Android + bling (§1.2, §1.6)
+        - waydroid
+        - fastfetch
+        # silverblue-compose certainties (GNOME core + firefox)
+        - firefox
+        - firefox-langpacks
+        - gnome-shell
+        - mutter
+        - gdm
+        - gnome-session
+        - gnome-session-wayland-session
+        - nautilus
+        - ptyxis
+        - gnome-control-center
+        - gnome-settings-daemon # §11 note: re-add if GTK apps misbehave under Hyprland
+        - gjs
+        - xdg-desktop-portal-gnome
+
+  # ── Step C — guarded removals + hard verification ──────────────────────────
+  - type: script
+    scripts:
+      - guarded-removals.sh
+
+  # ── Step D — file footprint + service/justfile pruning ─────────────────────
+  - type: script
+    scripts:
+      - file-footprint.sh
+
+  # ── Step E — directory-installed GNOME extensions ──────────────────────────
+  # (replaces the gnome-extensions module — §11 #1)
+  - type: script
+    scripts:
+      - gnome-extensions.sh
+
+  # ── Step F — fonts, safe removal ───────────────────────────────────────────
+  - type: script
+    scripts:
+      - fonts-cleanup.sh

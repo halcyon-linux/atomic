@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+modules:
+  - type: dnf
+    group-install:
+      with-optional: false
+      packages:
+        - custom-environment
+    install:
+      install-weak-deps: false
+      skip-unavailable: false
+      packages:
+        - accountsservice
+        - bleachbit
+        - bluez-tools
+        - brightnessctl
+        - cargo
+        - cmake
+        - cronie
+        - curl
+        - ddcutil
+        - direnv
+        - distrobox
+        - fail2ban
+        - fastfetch
+        - file-roller
+        - flatseal
+        - fontconfig
+        - fonts-filesystem
+        - gcc-c++
+        - git
+        - go
+        - grim
+        - gsettings-desktop-schemas
+        - gtk4-layer-shell
+        - gzip
+        - hunspell
+        - hunspell-en
+        - hunspell-en-GB
+        - hunspell-en-US
+        - ImageMagick
+        - imv
+        - inotify-tools
+        - jq
+        - liberation-fonts
+        - libinput-utils
+        - logrotate
+        - lynis
+        - man-db
+        - mpv
+        - ninja-build
+        - pipx
+        - pkgconf-pkg-config
+        - plymouth
+        - plymouth-theme-spinner
+        - podman
+        - podman-sequoia
+        - policycoreutils-python-utils
+        - pymol
+        - python3-xlib
+        - qt5ct
+        - slurp
+        - sqlite
+        - swappy
+        - transmission-gtk
+        - udiskie
+        - xdg-desktop-portal
+        - xdg-user-dirs
+        - xdg-user-dirs-gtk
+        - xhost
+        - xorg-x11-server-Xorg
+        - xorg-x11-server-Xwayland
+        - xorg-x11-xauth
+        - zathura
+        - zathura-pdf-poppler
+        - zathura-plugins-all
+        - zsh
+        - setroubleshoot
+        - setroubleshoot-server
+        - setroubleshoot-plugins
+        - setools-console
+        - udica

@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# nix.yml — fu5ha/winter pattern (Apache-2.0; credited in README).
+# Home-Manager is NOT baked — bootstrapped post-login via `ujust home-manager-setup`.
+modules:
+  - type: files
+    files:
+      - source: nix-tmpfiles
+        destination: /usr/lib/tmpfiles.d/
+      - source: nix-profile
+        destination: /etc/profile.d/
+
+  - type: systemd
+    system:
+      enabled:
+        - var-nix.service
+        - nix.mount
+
+  - type: dnf
+    install:
+      install-weak-deps: false
+      packages:
+        - nix
+        - nix-daemon
+
+  - type: systemd
+    system:
+      enabled:
+        - nix-daemon

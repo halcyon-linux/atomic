@@ -1,0 +1,21 @@
+# TODO
+
+- [x] apps-verify.sh fails
+- [x] desktop-verify.sh fails
+- [x] all scripts need to be more verbose at every step to be useful in github workflows
+- [x] integrate texlive niceties likely from archive repo in github
+- [x] also get the brew setup from one my past projects where brew packages were immediately available after 1st login
+- [ ] Make sure security best practices are used throughout the halcyon project
+- [ ] verify that the python packages installed correctly.
+- [ ] gets some just files from my previous projects
+- [ ] Check that pyprland systemd service is running or not in the running system
+- [ ] try to avoid install steam, lutris from flatpaks
+- [ ] From the logs make sure all non-fedora repos are removed after package is installed from it. Also make sure that everything is correct and in order and that the github workflow performed without issues.
+- [ ] Carefully study the rakuos linux project and its various repositories and then, from the rakuos project, implement P03 kernel, native-gaming, nvidia integration with P03 kernel, plymouth theming with my own logo while always using the bluebuild system. Do not implement the Containerfile system from the rakuos repos. Also do not implement their rum package manager. And only explain to me in a nix.md file how the rakuos project sets up nix.
+- [ ] Convert all flatpaks to manual installs, including mailsping
+- [ ] Implement adguard home to halcyon and most abilities from opensense
+- [ ] Implement hardened security for all the files in public repo and github workflow, as well as for the github repo.
+- [ ] Harden the custom image from securefin linux as well
+- [ ] Setup distroshelf as dnf spec and install from rpm
+- [ ] Install bitwarden as rpm download from official repos.
+- [ ] Install ticktick as rpm from official sources

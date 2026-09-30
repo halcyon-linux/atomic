@@ -1,0 +1,60 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+modules:
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - vscode.repo
+        - https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+      keys:
+        - https://packages.microsoft.com/keys/microsoft.asc
+        - https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+      copr:
+        - sneexy/zen-browser
+    install:
+      install-weak-deps: false
+      skip-unavailable: false
+      # exclude:
+      #   - zlib
+      packages:
+        - code
+        - brave-browser
+        - zen-browser
+        - emacs-pgtk
+        - neovim
+        - nodejs
+        - npm
+        - tree-sitter-cli
+
+  # brave-origin is dnf-installed in its own block with skip-unavailable: true —
+  # apps-verify.sh treats its absence as a NOTE, and a temporarily missing
+  # package must not sink the strict block above.
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+      keys:
+        - https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+    install:
+      install-weak-deps: false
+      skip-unavailable: true
+      packages:
+        - brave-origin
+
+  - type: dnf
+    repos:
+      cleanup: true
+      files:
+        - https://raw.githubusercontent.com/terrapkg/subatomic-repos/main/terra.repo
+    install:
+      install-weak-deps: false
+      exclude:
+        - zlib
+      packages:
+        - zed
+
+  - type: script
+    scripts:
+      - apps-verify.sh

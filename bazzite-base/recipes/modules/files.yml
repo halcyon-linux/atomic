@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# files.yml — static tree, ujust recipes, chezmoi dotfiles.
+modules:
+  - type: files
+    files:
+      - source: system
+        destination: / # files/system/** → /** (template+winter verified)
+
+  - type: justfiles
+    install: false # just/ujust in base
+    validate: false
+    # files/justfiles/*.just → /usr/share/bluebuild/justfiles/
+    # + imports appended to /usr/share/ublue-os/just/60-custom.just → visible in `ujust` (§1.14)
+
+  - type: chezmoi
+    repository: https://github.com/aahsnr-configs/dotfiles
+    file-conflict-policy: replace # repo = source of truth (user decision)
+    # all-users default true → --global enable chezmoi-init.service + chezmoi-update.timer;
+    # chezmoi-init applies dots at FIRST LOGIN (only if ~/.local/share/chezmoi absent)
+
+  - type: script
+    scripts:
+      - files-verify.sh

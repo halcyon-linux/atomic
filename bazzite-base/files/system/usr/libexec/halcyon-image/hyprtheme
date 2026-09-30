@@ -1,0 +1,17 @@
+#!/bin/bash
+
+THEME='Colloid-Purple-Dark-Catppuccin'
+ICONS='Papirus-Dark'
+FONT='JetBrainsMono Nerd Font Medium 13'
+CURSOR='Bibata-Modern-Ice'
+
+SCHEMA='gsettings set org.gnome.desktop.interface'
+
+apply_themes() {
+	${SCHEMA} gtk-theme "$THEME"
+	${SCHEMA} icon-theme "$ICONS"
+	${SCHEMA} cursor-theme "$CURSOR"
+	${SCHEMA} font-name "$FONT"
+}
+
+apply_themes

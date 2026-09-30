@@ -1,0 +1,19 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# branding.yml — os-release identity + plymouth/motd/backgrounds.
+# build-plymouth-assets.sh generates the theme's real assets from the baked
+# astronaut wallpaper (background, throbber frames, entry widgets) and selects
+# the theme; branding-verify.sh gates it. The initramfs module (recipe, after
+# this file) regenerates the initrd so the theme is active at boot.
+modules:
+  - type: os-release
+    properties:
+      NAME: halcyon
+      PRETTY_NAME: halcyon (Bazzite fork)
+      HOME_URL: https://github.com/aahsnr-work/halcyon
+      # ID/ID_LIKE intentionally untouched (fedora-compatible; §1.19k)
+
+  - type: script
+    scripts:
+      - build-plymouth-assets.sh
+      - branding-verify.sh

@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "::group::install-obsidian — resolving latest release"
+
+OBSIDIAN_TMP="$(mktemp -d)"
+trap 'echo "  INFO  cleaning up ${OBSIDIAN_TMP}"; rm -rf "${OBSIDIAN_TMP}"' EXIT
+
+cd "${OBSIDIAN_TMP}"
+
+# Query GitHub API for the newest release that ships a desktop AppImage.
+# NOTE: releases/latest is unusable here — it is periodically a mobile-only
+# (apk) release with no AppImage asset. Each asset's API entry carries a
+# sha256 `digest`, which we verify the download against. GH_TOKEN/GITHUB_TOKEN/
+# BB_PASSWORD (set by the CI action) are used opportunistically to raise the
+# api.github.com rate limit; unauthenticated requests still work.
+echo "--- Querying GitHub API for latest Obsidian desktop release ---"
+GH_AUTH="${GH_TOKEN:-${GITHUB_TOKEN:-${BB_PASSWORD:-}}}"
+AUTH_ARGS=()
+if [ -n "${GH_AUTH}" ]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${GH_AUTH}")
+  echo "  INFO  using authenticated GitHub API request"
+fi
+API_RESPONSE="$(curl --fail --retry 5 --retry-delay 2 -sSL \
+  "${AUTH_ARGS[@]}" \
+  'https://api.github.com/repos/obsidianmd/obsidian-releases/releases?per_page=15' 2>/dev/null || true)"
+ASSET_LINE="$(printf '%s' "${API_RESPONSE}" | jq -r '
+  ([.[]? | .assets[]? | select((.name | test("(?i)\\.appimage$")) and ((.name | test("(?i)-arm64")) | not))][0]
+    | [.browser_download_url, (.digest // "-")]) | @tsv' 2>/dev/null || true)"
+APPIMAGE_URL="$(printf '%s' "${ASSET_LINE}" | cut -f1 || true)"
+APPIMAGE_DIGEST="$(printf '%s' "${ASSET_LINE}" | cut -f2 || true)"
+
+if [ -z "${APPIMAGE_URL}" ] || [ "${APPIMAGE_URL}" = "null" ]; then
+  APPIMAGE_URL="https://github.com/obsidianmd/obsidian-releases/releases/download/v1.8.7/Obsidian-1.8.7.AppImage"
+  APPIMAGE_DIGEST="-"
+  echo "  WARN  GitHub API unavailable or returned no AppImage URL — using fallback: ${APPIMAGE_URL}"
+else
+  echo "  OK    resolved AppImage URL: ${APPIMAGE_URL}"
+fi
+echo "::endgroup::"
+
+echo "::group::install-obsidian — download & extract"
+echo "--- Downloading AppImage ---"
+curl -fsSL --progress-bar "${APPIMAGE_URL}" -o obsidian.AppImage
+size=$(du -h obsidian.AppImage | cut -f1)
+echo "  OK    downloaded obsidian.AppImage (${size})"
+
+# --- Integrity: verify against the release asset's sha256 digest ---
+if [ -n "${APPIMAGE_DIGEST}" ] && [ "${APPIMAGE_DIGEST}" != "-" ] && [ "${APPIMAGE_DIGEST}" != "null" ]; then
+  expected="${APPIMAGE_DIGEST#sha256:}"
+  actual="$(sha256sum obsidian.AppImage | cut -d' ' -f1)"
+  if [ "${expected}" = "${actual}" ]; then
+    echo "  OK    sha256 verified against GitHub API asset digest (${actual:0:12}…)"
+  else
+    echo "  FAIL  sha256 mismatch — expected ${expected:0:12}…, got ${actual:0:12}…" >&2
+    exit 1
+  fi
+else
+  echo "  WARN  no digest available for this asset — download is TLS-verified only"
+fi
+
+chmod +x obsidian.AppImage
+
+echo "--- Extracting AppImage contents ---"
+./obsidian.AppImage --appimage-extract >/dev/null
+echo "  OK    AppImage extracted to squashfs-root/"
+echo "::endgroup::"
+
+echo "::group::install-obsidian — install to /usr/lib/obsidian"
+INSTALL_DIR="/usr/lib/obsidian"
+mkdir -p "${INSTALL_DIR}"
+echo "--- Copying files to ${INSTALL_DIR} ---"
+cp -rf squashfs-root/* "${INSTALL_DIR}/"
+installed_size=$(du -sh "${INSTALL_DIR}" | cut -f1)
+echo "  OK    ${INSTALL_DIR} populated (${installed_size})"
+
+echo "--- Creating /usr/bin/obsidian symlink ---"
+ln -sf "${INSTALL_DIR}/obsidian" /usr/bin/obsidian
+echo "  OK    /usr/bin/obsidian → ${INSTALL_DIR}/obsidian"
+echo "::endgroup::"
+
+echo "::group::install-obsidian — desktop entry & icons"
+# Obsidian's internal AppImage layout has changed across releases (desktop
+# file at the root, under usr/share/applications/, renamed Obsidian.desktop,
+# or absent). Discover it instead of probing one fixed path, and generate a
+# complete entry if upstream omitted it — build-scripts-verify.sh hard-fails
+# on a missing /usr/share/applications/obsidian.desktop.
+echo "--- Locating desktop entry ---"
+DESKTOP_SRC=""
+while IFS= read -r candidate; do
+  DESKTOP_SRC="${candidate}"
+  break
+done < <(find squashfs-root -maxdepth 5 -iname '*.desktop' \
+  \( -ipath '*obsidian*' -o -iname 'obsidian.desktop' \) 2>/dev/null | sort)
+if [ -z "${DESKTOP_SRC}" ]; then
+  DESKTOP_SRC=$(find squashfs-root -maxdepth 5 -iname '*.desktop' 2>/dev/null | head -n1)
+fi
+
+if [ -n "${DESKTOP_SRC}" ]; then
+  install -Dm644 "${DESKTOP_SRC}" /usr/share/applications/obsidian.desktop
+  sed -i 's|^Exec=.*|Exec=/usr/bin/obsidian %U|' /usr/share/applications/obsidian.desktop
+  sed -i 's|^Icon=.*|Icon=obsidian|' /usr/share/applications/obsidian.desktop
+  echo "  OK    obsidian.desktop installed from ${DESKTOP_SRC} & patched"
+else
+  cat >/usr/share/applications/obsidian.desktop <<'EOF'
+[Desktop Entry]
+Name=Obsidian
+Comment=Focus on your notes
+Exec=/usr/bin/obsidian %U
+Terminal=false
+Type=Application
+Icon=obsidian
+Categories=Office;
+MimeType=x-scheme-handler/obsidian;
+StartupWMClass=obsidian
+EOF
+  echo "  WARN  no .desktop found inside AppImage — generated /usr/share/applications/obsidian.desktop"
+fi
+
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  if desktop-file-validate /usr/share/applications/obsidian.desktop; then
+    echo "  OK    desktop-file-validate passed"
+  else
+    echo "  WARN  desktop-file-validate reported issues — non-fatal"
+  fi
+fi
+
+echo "--- Locating icon ---"
+icon_installed=false
+ICON_SRC=""
+while IFS= read -r candidate; do
+  ICON_SRC="${candidate}"
+  break
+done < <(find squashfs-root \( -ipath '*hicolor*obsidian*.png' -o -ipath '*icons*obsidian*.png' \) 2>/dev/null | sort -V | tail -n1)
+[ -z "${ICON_SRC}" ] && ICON_SRC=$(find squashfs-root -maxdepth 2 -iname 'obsidian*.png' 2>/dev/null | head -n1)
+if [ -n "${ICON_SRC}" ]; then
+  install -Dm644 "${ICON_SRC}" /usr/share/icons/hicolor/512x512/apps/obsidian.png
+  echo "  OK    icon installed from ${ICON_SRC}"
+  icon_installed=true
+else
+  echo "  WARN  no icon file found inside AppImage"
+fi
+
+echo "--- Updating desktop database and icon cache ---"
+update-desktop-database /usr/share/applications &>/dev/null || true
+echo "  OK    update-desktop-database done"
+gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || true
+echo "  OK    gtk-update-icon-cache done"
+
+echo "--- install-obsidian complete ---"
+echo "::endgroup::"

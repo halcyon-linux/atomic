@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# brew.yml — curated formulas, BAKED into the image at build time.
+# The files module stages the Brewfile early (this module runs at order 8;
+# files.yml's tree copy is later at 10); install-brew-bundle.sh stages the
+# base's brew payload, runs `brew bundle` as a throwaway uid, and repacks
+# the populated prefix to /usr/share/halcyon/brew-bundle.tar.zst.
+# halcyon-brew-bundle.service (system, multi-user.target) extracts it at
+# boot — pre-login and offline — so formulas are available immediately
+# after login on fresh installs AND rebases (/var is not reseeded on
+# rebase, so the payload must ride in /usr like the base's own
+# homebrew.tar.zst). The brew-bundle.service user unit stays as an online
+# catch-up fallback. The base brew payload + update/upgrade timers are
+# untouched.
+modules:
+  - type: files
+    files:
+      - source: brew
+        destination: /usr/share/ublue-os/homebrew # Brewfile staged early for install-brew-bundle.sh
+
+  - type: script
+    scripts:
+      - install-brew-bundle.sh
+      - brew-verify.sh

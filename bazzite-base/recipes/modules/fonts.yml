@@ -1,0 +1,16 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# fonts.yml — restores a minimal font set after Step F removed the base font
+# RPMs (Bazzite's twemoji/noto-cjk/lato/fira-code/nerd-fonts). CJK coverage
+# tradeoff documented in README/NOTES — re-add google-noto-sans-cjk-fonts if
+# needed.
+modules:
+  - type: fonts
+    fonts:
+      nerd-fonts:
+        - JetBrainsMono
+        - NerdFontsSymbolsOnly
+      google-fonts:
+        - JetBrains Mono
+        - Noto Emoji
+        - Noto Color Emoji

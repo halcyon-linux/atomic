@@ -1,0 +1,4 @@
+halcyon — TODO(user)
+
+Replace this file with real login-shell motd content (or remove the file and
+ship no motd). Nothing branded is invented for you.

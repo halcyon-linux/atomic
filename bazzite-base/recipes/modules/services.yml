@@ -1,0 +1,22 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# services.yml — systemd enable/mask (AFTER build-scripts.yml so pyprland.service exists).
+modules:
+  - type: systemd
+    system:
+      enabled:
+        - greetd.service
+        - halcyon-brew-bundle.service
+        # Escape hatch: greetd Conflicts=getty@tty1, so a bad greeter config
+        # would leave tty1 dead with no login prompt. tty2 always survives.
+        - getty@tty2.service
+      masked:
+        - sddm.service
+        - gdm.service
+        - bazzite-autologin.service
+        - nvidia-persistenced.service
+        - nvidia-powerd.service
+    user:
+      enabled:
+        - pyprland.service
+        - brew-bundle.service

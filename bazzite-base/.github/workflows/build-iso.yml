@@ -1,0 +1,46 @@
+name: build-iso
+on:
+  workflow_dispatch:
+  workflow_run:
+    # NOTE: this references the workflow *name* of build.yml, not its filename
+    workflows: [bluebuild]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  generate-iso:
+    # Run on manual dispatch, or automatically when the bluebuild workflow
+    # (build.yml) completes successfully on main. workflow_run fires for ALL
+    # conclusions, so guard against failure/cancelled and non-main branches.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install BlueBuild CLI (>= v0.9.23 required for /opt handling; latest v0.9.37)
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/blue-build/cli/main/install.sh | sudo bash
+          bluebuild --version
+
+      - name: Generate ISO from the published halcyon image (run after a green build.yml)
+        run: |
+          sudo bluebuild generate-iso --iso-name halcyon.iso image ghcr.io/aahsnr-work/halcyon
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: halcyon-iso
+          path: halcyon.iso
+          if-no-files-found: error

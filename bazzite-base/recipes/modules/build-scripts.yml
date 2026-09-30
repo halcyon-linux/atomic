@@ -1,0 +1,35 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# build-scripts.yml — the five build-time installers (files/scripts/*.sh),
+# baked results. TeX Live (scheme-small) adds build traffic and image
+# weight — intended; EXTRA_TL_PACKAGES=(latexmk biber) kept as scripted.
+modules:
+  - type: dnf
+    install:
+      install-weak-deps: false
+      skip-unavailable: true
+      packages:
+        - gcc
+        - perl
+        - jq
+        - python3
+    # NOTE: the python-packages fuzzy helpers need fd/fzf/bat/rg at runtime —
+    # these are deliberately NOT dnf-installed here: the Brewfile provides
+    # them via the baked brew payload (boot seeding + brew shellenv PATH).
+
+  - type: files
+    files:
+      - source: python-packages
+        destination: /usr/src/python-packages # staged for install-python-packages.sh; removed after install
+
+  - type: script
+    scripts: # official mechanism: executes files/scripts/*.sh ($CONFIG_DIRECTORY/scripts)
+      - install-obsidian.sh
+      - install-zotero.sh
+      - install-pyprland.sh
+      - install-texlive.sh
+      - install-python-packages.sh
+
+  - type: script
+    scripts:
+      - build-scripts-verify.sh

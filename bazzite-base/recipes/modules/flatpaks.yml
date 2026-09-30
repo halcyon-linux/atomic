@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+# flatpaks.yml — default-flatpaks@v1 (v2 has no remove: — §1.19b).
+# DistroShelf KEPT as a system Flatpak (v4 directive). Install IDs are
+# validated against Flathub at build time; lists apply at first boot,
+# idempotently, via system-flatpak-setup.timer (flatpak state lives in /var,
+# outside OSTree commits — §11 #3).
+modules:
+  - type: default-flatpaks@v1
+    notify: true
+    system:
+      # repo-url/repo-name omitted → Flathub defaults (tsp-verified)
+      install:
+        - com.ranfdev.DistroShelf # v4: system flatpak replaces the stage-built RPM
+        - org.onlyoffice.desktopeditors
+        - com.bitwarden.desktop
+        - com.ticktick.TickTick
+      remove: # base GNOME set (§1.8) minus Flatseal & DistroShelf
+        - org.mozilla.firefox
+        - com.mattjakeman.ExtensionManager
+        - com.github.Matoking.protontricks
+        - io.github.flattool.Warehouse
+        - io.missioncenter.MissionCenter
+        - com.vysp3r.ProtonPlus
+        - org.gnome.Calculator
+        - org.gnome.Calendar
+        - org.gnome.Characters
+        - org.gnome.Contacts
+        - org.gnome.Papers
+        - org.gnome.Logs
+        - org.gnome.Loupe
+        - org.gnome.NautilusPreviewer
+        - org.gnome.TextEditor
+        - org.gnome.Weather
+        - org.gnome.baobab
+        - org.gnome.clocks
+        - org.gnome.font-viewer
+        - org.gnome.Showtime
+        - org.gnome.Firmware
+        - page.tesk.Refine

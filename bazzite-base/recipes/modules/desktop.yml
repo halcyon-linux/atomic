@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/module-list-v1.json
+modules:
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - lionheartp/Hyprland
+    install:
+      skip-unavailable: false
+      install-weak-deps: false
+      packages:
+        - cliphist
+        - hyprland-git
+        - hyprpwcenter
+        - hyprshutdown
+        - hyprland-guiutils
+        - noctalia-git
+        - noctalia-greeter-git
+        - nwg-look
+        - qt6ct
+        - xdg-desktop-portal-gtk
+        - xdg-desktop-portal-hyprland
+        - greetd
+        - kitty
+        - kitty-shell-integration
+        - kitty-terminfo
+        - gnome-keyring
+        - gnome-tweaks
+        - papers
+        - papirus-icon-theme
+        - thunar
+        - thunar-archive-plugin
+        - thunar-media-tags-plugin
+        - thunar-vcs-plugin
+        - thunar-volman
+
+  - type: script
+    scripts:
+      - desktop-verify.sh # COPR file purge + provenance/ABI/repo gates

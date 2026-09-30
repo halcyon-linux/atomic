@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# halcyon brew bundle installer — online catch-up fallback at first login.
+#
+# Design:
+#  - halcyon-brew-bundle.service (system, multi-user.target) seeds all
+#    Brewfile formulas from the image payload at boot, pre-login and
+#    offline — the normal path. This script therefore usually finds
+#    everything present and exits in seconds WITHOUT invoking brew.
+#  - "Present" means the pour COMPLETED: every pour writes a
+#    Cellar/<name>/<version>/INSTALL_RECEIPT.json tab; a bare directory is
+#    an incomplete pour and does not count.
+#  - Only when formulas are genuinely missing or incomplete does it run
+#    `brew bundle install` online — brew reinstalls incomplete formulas
+#    correctly (their tabs are absent from brew's database) — retried up to
+#    3 times with linear back-off for transient network failures.
+set -euo pipefail
+
+readonly BREW="/home/linuxbrew/.linuxbrew/bin/brew"
+readonly BREWFILE="/usr/share/ublue-os/homebrew/Brewfile"
+
+echo "=== Halcyon: brew-bundle login-time catch-up ==="
+
+# --- Sanity: Brewfile must be present (shipped in the image) ---
+if [[ ! -f "${BREWFILE}" ]]; then
+  echo "ERROR: ${BREWFILE} not found in the image — cannot install packages." >&2
+  exit 1
+fi
+
+# --- Fast path: boot-time seeding usually has everything in place.
+#     Check pour receipts directly — no brew invocation, no network,
+#     finishes in under a second. ---
+formula_complete() {
+  ls "/home/linuxbrew/.linuxbrew/Cellar/$1"/*/INSTALL_RECEIPT.json >/dev/null 2>&1
+}
+
+missing=()
+while IFS= read -r name; do
+  [[ -z "${name}" ]] && continue
+  if ! formula_complete "${name}"; then
+    missing+=("${name}")
+  fi
+# Cellar dirs are named by formula only — strip any "tap/" prefix and
+# tolerate quoted or unquoted entries, so new Brewfile lines of any
+# common style are picked up automatically.
+done < <(sed -nE 's/^[[:space:]]*brew "?([^" ]+)"?.*/\1/p' "${BREWFILE}" | sed 's|^.*/||')
+
+if [[ ${#missing[@]} -eq 0 ]]; then
+  echo "OK: All Brewfile formulas already present (boot-time seeding) — nothing to do."
+  exit 0
+fi
+
+echo "INFO: ${#missing[@]} formula(s) missing or incomplete despite boot seeding: ${missing[*]}"
+
+# --- Wait for brew binary (brew-setup.service runs before user sessions, but
+#     on an extremely slow first boot it may still be extracting the tarball) ---
+if [[ ! -x "${BREW}" ]]; then
+  echo "INFO: Homebrew binary not yet present; waiting for brew-setup.service to finish (up to 60s)..."
+  waited=0
+  while [[ ! -x "${BREW}" && ${waited} -lt 60 ]]; do
+    sleep 2
+    waited=$((waited + 2))
+  done
+fi
+
+if [[ ! -x "${BREW}" ]]; then
+  echo "ERROR: ${BREW} not found or not executable after 60s — brew-setup.service may have failed." >&2
+  echo "       Run:  systemctl status brew-setup.service" >&2
+  exit 1
+fi
+
+# --- Suppress brew telemetry and noise; document the Brewfile location via
+#     the env knob the bundle command itself documents ---
+export HOMEBREW_BUNDLE_FILE="${BREWFILE}"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_ENV_HINTS=1
+
+# --- Run brew bundle with linear-backoff retries for transient network
+#     failures. Primary invocation is the Homebrew 5.2+/6+ CLI (`install`
+#     subcommand); if that fails, the legacy pre-6 form is tried once
+#     before the attempt counts as failed — a guard against CLI interface
+#     churn. Output streams to console AND a log file (PIPESTATUS preserves
+#     brew's exit code through the tee). ---
+readonly MAX_ATTEMPTS=3
+readonly RETRY_DELAY=15  # seconds between retries
+
+for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+  echo "INFO: brew bundle install  (attempt ${attempt}/${MAX_ATTEMPTS})"
+  BUNDLE_LOG="/tmp/halcyon-brew-bundle-${attempt}.log"
+  set +e
+  "${BREW}" bundle install 2>&1 | tee "${BUNDLE_LOG}"
+  rc=${PIPESTATUS[0]}
+  if [[ ${rc} -ne 0 ]]; then
+    echo "WARN: modern 'brew bundle install' failed (rc=${rc}) — trying legacy invocation" >&2
+    "${BREW}" bundle --no-lock --file="${BREWFILE}" 2>&1 | tee -a "${BUNDLE_LOG}"
+    rc=${PIPESTATUS[0]}
+  fi
+  set -e
+  if [[ ${rc} -eq 0 ]]; then
+    echo "OK: All Homebrew packages installed successfully."
+    exit 0
+  fi
+  if [[ ${attempt} -lt ${MAX_ATTEMPTS} ]]; then
+    echo "WARN: brew bundle failed on attempt ${attempt}; retrying in ${RETRY_DELAY}s..." >&2
+    sleep "${RETRY_DELAY}"
+  fi
+done
+
+echo "ERROR: brew bundle failed after ${MAX_ATTEMPTS} attempts." >&2
+echo "       Inspect the log(s):  ${BUNDLE_LOG}" >&2
+echo "       Inspect the journal:  journalctl --user -u brew-bundle.service" >&2
+exit 1

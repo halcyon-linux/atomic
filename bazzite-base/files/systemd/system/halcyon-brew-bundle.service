@@ -1,0 +1,21 @@
+[Unit]
+Description=Seed halcyon Homebrew formulas from the image payload (pre-login, offline)
+Documentation=https://github.com/aahsnr-work/halcyon
+# brew-setup.service (base, basic.target) extracts the brew core to
+# /home/linuxbrew at boot; ordering after it lets the payload's
+# no-clobber merge land on the final prefix. Deliberately NO network
+# dependency: the payload is local, so first-login availability holds
+# even on an offline first boot / rebase.
+Wants=brew-setup.service
+After=brew-setup.service
+ConditionPathExists=/usr/share/halcyon/brew-bundle.tar.zst
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/halcyon-image/brew-bundle-extract
+# Generous on purpose: ~87k files extracted then merged on slow eMMC
+# (handhelds) can take several minutes.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
